@@ -58,6 +58,9 @@ export default function RunInspectionPage() {
   const [inspection, setInspection] = useState(null);
   const [items, setItems] = useState([]);
   const [answers, setAnswers] = useState({});
+  const [quickVoiceLoading, setQuickVoiceLoading] = useState(false);
+  const [quickVoiceSuggestion, setQuickVoiceSuggestion] = useState(null);
+  const [quickVoiceError, setQuickVoiceError] = useState("");
   const [reviewers, setReviewers] = useState([]);
   const [selectedReviewerId, setSelectedReviewerId] = useState("");
   const [loading, setLoading] = useState(true);
@@ -191,6 +194,46 @@ export default function RunInspectionPage() {
 
       return updated;
     });
+  }
+
+  async function handleQuickVoiceResult(transcript) {
+    setQuickVoiceError("");
+    setQuickVoiceSuggestion(null);
+    setQuickVoiceLoading(true);
+    try {
+      const res = await fetch("/api/voice-parse-item", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcript, itemQuestions: items.map((i) => i.question) }),
+      });
+      const data = await res.json();
+      if (data.skipped) {
+        setQuickVoiceError("Voice matching isn't set up yet.");
+        return;
+      }
+      if (data.error || !data.matchedItem || !data.value) {
+        setQuickVoiceError("Couldn't confidently match that to an item — try again, or fill it in manually.");
+        return;
+      }
+      const matched = items.find((i) => i.question === data.matchedItem);
+      if (!matched) {
+        setQuickVoiceError("Couldn't confidently match that to an item — try again, or fill it in manually.");
+        return;
+      }
+      setQuickVoiceSuggestion({ item: matched, value: data.value, notes: data.notes, transcript });
+    } catch {
+      setQuickVoiceError("Voice matching failed — try again.");
+    } finally {
+      setQuickVoiceLoading(false);
+    }
+  }
+
+  function applyQuickVoiceSuggestion() {
+    if (!quickVoiceSuggestion) return;
+    const { item, value, notes } = quickVoiceSuggestion;
+    updateAnswer(item.id, "value", value);
+    if (notes) updateAnswer(item.id, "notes", notes);
+    setQuickVoiceSuggestion(null);
   }
 
   async function saveOneAnswer(item) {
@@ -568,6 +611,45 @@ export default function RunInspectionPage() {
         <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 mb-4">{error}</p>
       )}
 
+      {!isSubmitted && (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-4">
+          <div className="flex items-center gap-3">
+            <VoiceInput onResult={handleQuickVoiceResult} />
+            <p className="text-sm text-indigo-900">
+              <strong>Quick voice log</strong> — speak a finding and I'll match it to the right item
+            </p>
+            {quickVoiceLoading && <span className="text-xs text-indigo-600">Listening for a match…</span>}
+          </div>
+          {quickVoiceError && <p className="text-xs text-rose-600 mt-2">{quickVoiceError}</p>}
+          {quickVoiceSuggestion && (
+            <div className="mt-3 bg-white border border-indigo-300 rounded-lg p-3">
+              <p className="text-sm text-slate-800 mb-1">
+                Matched: <strong>{quickVoiceSuggestion.item.question}</strong>
+              </p>
+              <p className="text-sm text-slate-600 mb-2">
+                Suggested result: <strong className="uppercase">{quickVoiceSuggestion.value}</strong>
+                {quickVoiceSuggestion.notes && <> — "{quickVoiceSuggestion.notes}"</>}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={applyQuickVoiceSuggestion}
+                  className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700"
+                >
+                  Apply
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQuickVoiceSuggestion(null)}
+                  className="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-medium rounded-lg hover:bg-slate-200"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       <div className="space-y-3 mb-4">
         {items.map((item) => {
           const a = answers[item.id] || { value: "", notes: "", evidence: [] };
