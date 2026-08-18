@@ -258,6 +258,33 @@ function ObservationCard({ observation: o, assignableUsers, currentUserId, onAss
   const [description, setDescription] = useState("");
   const [photoFile, setPhotoFile] = useState(null);
   const [includeLocation, setIncludeLocation] = useState(false);
+  const [aiAssist, setAiAssist] = useState(null);
+  const [loadingAi, setLoadingAi] = useState(false);
+
+  async function fetchAiAssist() {
+    setLoadingAi(true);
+    try {
+      const res = await fetch("/api/observation-ai-assist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: o.answers?.template_items?.question || o.description,
+          categoryTag: o.answers?.template_items?.category_tag,
+          notes: o.description || o.answers?.notes,
+        }),
+      });
+      const result = await res.json();
+      setAiAssist(result);
+      if (result.suggestedDueDays) {
+        const d = new Date();
+        d.setDate(d.getDate() + result.suggestedDueDays);
+        setDueDate(d.toISOString().slice(0, 10));
+      }
+    } catch {
+      // Silent fail — this is a helpful extra, not required for the page to work.
+    }
+    setLoadingAi(false);
+  }
 
   const isMine = o.assigned_to === currentUserId;
   const question = o.answers?.template_items?.question || "Standalone observation";
@@ -315,6 +342,16 @@ function ObservationCard({ observation: o, assignableUsers, currentUserId, onAss
             Save assignment
           </button>
 
+          {!aiAssist && (
+            <button
+              onClick={fetchAiAssist}
+              disabled={loadingAi}
+              className="text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {loadingAi ? "Thinking..." : "Get AI suggestions"}
+            </button>
+          )}
+
           {isMine && !closing && (
             <button
               onClick={() => setClosing(true)}
@@ -323,6 +360,34 @@ function ObservationCard({ observation: o, assignableUsers, currentUserId, onAss
               Close out
             </button>
           )}
+        </div>
+      )}
+
+      {aiAssist && (
+        <div className="mt-2 pt-2 border-t border-slate-100 space-y-1">
+          {aiAssist.complianceNote && (
+            <p className="text-xs text-slate-500">
+              <span className="font-medium text-slate-600">Compliance note:</span> {aiAssist.complianceNote}
+            </p>
+          )}
+          <div className="flex items-center gap-2">
+            {aiAssist.riskLevel && (
+              <span
+                className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                  aiAssist.riskLevel === "high"
+                    ? "bg-rose-100 text-rose-700"
+                    : aiAssist.riskLevel === "medium"
+                    ? "bg-amber-100 text-amber-700"
+                    : "bg-emerald-100 text-emerald-700"
+                }`}
+              >
+                {aiAssist.riskLevel} risk
+              </span>
+            )}
+            {aiAssist.suggestedAction && (
+              <p className="text-xs text-slate-600">{aiAssist.suggestedAction}</p>
+            )}
+          </div>
         </div>
       )}
 

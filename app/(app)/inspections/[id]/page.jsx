@@ -2,13 +2,23 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Camera, CheckCircle2, ClipboardCheck, MapPin } from "lucide-react";
+import { Camera, CheckCircle2, ClipboardCheck, MapPin, WifiOff, RefreshCw, AlertTriangle } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthContext";
 import { optionColor, NA_OPTION } from "@/lib/templateConstants";
 import { notify } from "@/lib/notify";
 import { getLocation } from "@/lib/geolocation";
+import { useOnlineStatus } from "@/lib/useOnlineStatus";
+import {
+  queueAnswer,
+  getQueuedAnswers,
+  removeQueuedAnswer,
+  queuePhoto,
+  getQueuedPhotos,
+  removeQueuedPhoto,
+} from "@/lib/offlineQueue";
 import SignaturePad from "@/components/SignaturePad";
+import VoiceInput from "@/components/VoiceInput";
 
 const PASS_FAIL_OPTIONS = [
   { value: "pass", label: "Pass", color: "emerald" },
@@ -43,6 +53,7 @@ const SELECT_FIELDS =
 export default function RunInspectionPage() {
   const { id } = useParams();
   const { profile, activeMembership, isSuperAdmin } = useAuth();
+  const isOnline = useOnlineStatus();
 
   const [inspection, setInspection] = useState(null);
   const [items, setItems] = useState([]);
@@ -54,17 +65,11 @@ export default function RunInspectionPage() {
   const [submitting, setSubmitting] = useState(false);
   const [advancing, setAdvancing] = useState(false);
   const [error, setError] = useState("");
+  const [syncBanner, setSyncBanner] = useState(""); // e.g. "Saved offline — will sync automatically"
 
-  // Signatures — captured at the two moments that actually matter: the
-  // inspector attesting to their submission, and a manager attesting to
-  // their final approval. "Mark as reviewed" is a lighter step and doesn't
-  // require one.
   const [inspectorSignature, setInspectorSignature] = useState(null);
   const [approverSignature, setApproverSignature] = useState(null);
 
-  // Separation of duties: holding a manager role doesn't let you sign off your
-  // own work. Enforced for real by the inspections_separation_of_duties trigger
-  // (phase10) — this just keeps the buttons from appearing at all.
   const isOwnInspection = !!profile?.id && profile.id === inspection?.inspector_id;
   const hasManagerRole =
     isSuperAdmin || activeMembership?.role === "site_manager" || activeMembership?.role === "company_manager";
@@ -73,6 +78,15 @@ export default function RunInspectionPage() {
   useEffect(() => {
     load();
   }, [id]);
+
+  // The moment connectivity comes back, automatically try pushing anything
+  // that's still queued locally — this is what makes sync feel automatic
+  // rather than something the person has to remember to trigger.
+  useEffect(() => {
+    if (isOnline && !loading) {
+      flushQueue();
+    }
+  }, [isOnline]);
 
   async function load() {
     setLoading(true);
@@ -92,7 +106,6 @@ export default function RunInspectionPage() {
       .eq("site_id", insp.site_id)
       .eq("status", "approved")
       .in("role", ["site_manager", "company_manager"]);
-    // You can't be your own reviewer — see the separation-of-duties trigger.
     setReviewers((managers || []).filter((m) => m.user_id !== insp.inspector_id));
 
     const { data: templateItems } = await supabase
@@ -117,21 +130,72 @@ export default function RunInspectionPage() {
         evidence: a.evidence || [],
       };
     });
-    setAnswers(mapped);
 
+    // Recover anything still sitting in the offline queue from a previous
+    // session — e.g. the tab was closed while offline before it could sync.
+    // This is what makes offline work actually durable, not just resilient
+    // to a brief network blip.
+    try {
+      const queuedAnswers = await getQueuedAnswers(id);
+      const queuedPhotos = await getQueuedPhotos(id);
+      let recoveredCount = 0;
+
+      queuedAnswers.forEach((qa) => {
+        mapped[qa.itemId] = {
+          ...(mapped[qa.itemId] || { answerId: null, evidence: [] }),
+          value: qa.value,
+          notes: qa.notes,
+          pendingSync: true,
+        };
+        recoveredCount++;
+      });
+      queuedPhotos.forEach((qp) => {
+        mapped[qp.itemId] = {
+          ...(mapped[qp.itemId] || { answerId: null, value: "", notes: "", evidence: [] }),
+          queuedPhotoName: qp.fileName,
+          queuedPhotoBlob: qp.blob,
+          pendingSync: true,
+        };
+        recoveredCount++;
+      });
+
+      if (recoveredCount > 0) {
+        setSyncBanner(`Recovered ${recoveredCount} unsynced answer(s) from this device — will sync automatically once online.`);
+      }
+    } catch {
+      // IndexedDB unavailable (very old browser, private browsing in some
+      // cases) — offline support just won't be available; everything else
+      // still works normally.
+    }
+
+    setAnswers(mapped);
     setLoading(false);
   }
 
   function updateAnswer(itemId, field, value) {
-    setAnswers((prev) => ({
-      ...prev,
-      [itemId]: { answerId: null, value: "", notes: "", photoFile: null, evidence: [], ...prev[itemId], [field]: value },
-    }));
+    setAnswers((prev) => {
+      const updated = {
+        ...prev,
+        [itemId]: { answerId: null, value: "", notes: "", photoFile: null, evidence: [], ...prev[itemId], [field]: value },
+      };
+
+      // Persist to IndexedDB on every change, not just on Save/Submit — this
+      // is what protects the person's work if they lose signal and close
+      // the tab before it ever gets a chance to reach the server.
+      const a = updated[itemId];
+      if (field === "photoFile" && value) {
+        queuePhoto(id, itemId, value, value.name).catch(() => {});
+      } else if (field === "value" || field === "notes") {
+        queueAnswer(id, itemId, { value: a.value, notes: a.notes }).catch(() => {});
+      }
+
+      return updated;
+    });
   }
 
   async function saveOneAnswer(item) {
     const a = answers[item.id];
-    if (!a || (!a.value && !a.notes && !a.photoFile)) return null;
+    if (!a || (!a.value && !a.notes && !a.photoFile && !a.pendingSync)) return null;
 
     let answerId = a.answerId;
     if (answerId) {
@@ -152,9 +216,14 @@ export default function RunInspectionPage() {
     }
 
     let newEvidence = a.evidence;
-    if (a.photoFile) {
-      const path = `evidence/${answerId}-${Date.now()}-${a.photoFile.name}`;
-      const { error: uploadErr } = await supabase.storage.from("evidence").upload(path, a.photoFile);
+    // A photo can come from the live file input (photoFile) or from a
+    // recovered offline queue entry (queuedPhotoBlob) — either way it
+    // still needs to actually reach Supabase storage.
+    const photoToUpload = a.photoFile || a.queuedPhotoBlob;
+    const photoName = a.photoFile?.name || a.queuedPhotoName;
+    if (photoToUpload) {
+      const path = `evidence/${answerId}-${Date.now()}-${photoName}`;
+      const { error: uploadErr } = await supabase.storage.from("evidence").upload(path, photoToUpload);
       if (uploadErr) throw new Error(`Photo upload failed: ${uploadErr.message}`);
 
       const { data: urlData } = supabase.storage.from("evidence").getPublicUrl(path);
@@ -190,15 +259,79 @@ export default function RunInspectionPage() {
       }
     }
 
+    // Now durably saved server-side — clear it from the local offline
+    // queue so it doesn't get recovered/re-synced again unnecessarily.
+    removeQueuedAnswer(id, item.id).catch(() => {});
+    removeQueuedPhoto(id, item.id).catch(() => {});
+
+    // AI photo consistency check — only worth asking when someone marked
+    // "Pass" and attached a photo; a "Fail" is already flagged by the
+    // person, no second opinion needed. Runs in the background — never
+    // blocks or delays saving.
+    if (item.answer_type === "pass_fail_na" && a.value === "pass" && a.photoFile) {
+      checkPhotoConsistency(item, a.photoFile);
+    }
+
     setAnswers((prev) => ({
       ...prev,
-      [item.id]: { ...prev[item.id], answerId, photoFile: null, evidence: newEvidence },
+      [item.id]: {
+        ...prev[item.id],
+        answerId,
+        photoFile: null,
+        queuedPhotoBlob: null,
+        queuedPhotoName: null,
+        evidence: newEvidence,
+        pendingSync: false,
+      },
     }));
 
     return answerId;
   }
 
-  // Uploads a signature blob to the evidence bucket and returns its public URL.
+  async function checkPhotoConsistency(item, photoFile) {
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(photoFile);
+      });
+
+      const res = await fetch("/api/check-photo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: base64, mediaType: photoFile.type, question: item.question }),
+      });
+      const result = await res.json();
+
+      if (result.flagged) {
+        setAnswers((prev) => ({
+          ...prev,
+          [item.id]: { ...prev[item.id], aiWarning: result.reason || "Photo may not match a Pass result." },
+        }));
+      }
+    } catch {
+      // Never let a failed AI check disrupt anything else on the page —
+      // this is a helpful suggestion, not a required step.
+    }
+  }
+
+  // Attempts to sync everything currently queued. Used both by the manual
+  // Save Progress button and automatically the moment connectivity returns.
+  async function flushQueue() {
+    let anyFailed = false;
+    for (const item of items) {
+      try {
+        await saveOneAnswer(item);
+      } catch {
+        anyFailed = true;
+      }
+    }
+    if (!anyFailed) {
+      setSyncBanner("");
+    }
+  }
+
   async function uploadSignature(blob, role) {
     const path = `signatures/${id}-${role}-${Date.now()}.png`;
     const { error: uploadErr } = await supabase.storage.from("evidence").upload(path, blob);
@@ -210,10 +343,17 @@ export default function RunInspectionPage() {
   async function handleSaveProgress() {
     setError("");
     setSaving(true);
+
+    if (!isOnline) {
+      // Nothing to send — updateAnswer already wrote everything to
+      // IndexedDB as it happened. Just confirm that to the person.
+      setSyncBanner("You're offline — your answers are saved on this device and will sync automatically once you're back online.");
+      setSaving(false);
+      return;
+    }
+
     try {
-      for (const item of items) {
-        await saveOneAnswer(item);
-      }
+      await flushQueue();
     } catch (e) {
       setError(e.message);
     }
@@ -222,15 +362,17 @@ export default function RunInspectionPage() {
 
   async function handleSubmit() {
     setError("");
+    if (!isOnline) {
+      setError("Submitting needs an internet connection. Your answers are saved on this device — connect and try again.");
+      return;
+    }
     if (!inspectorSignature) {
       setError("Please sign before submitting — this is your attestation that the inspection is accurate.");
       return;
     }
     setSubmitting(true);
     try {
-      for (const item of items) {
-        await saveOneAnswer(item);
-      }
+      await flushQueue();
       const score = computeScore(items, answers);
       const signatureUrl = await uploadSignature(inspectorSignature, "inspector");
 
@@ -349,6 +491,17 @@ export default function RunInspectionPage() {
 
   return (
     <main className="p-6 max-w-2xl mx-auto">
+      {!isOnline && (
+        <div className="flex items-center gap-2 bg-slate-800 text-white text-sm px-3 py-2 rounded-lg mb-4">
+          <WifiOff size={15} /> You're offline — answers are saving to this device and will sync automatically once you're back online.
+        </div>
+      )}
+      {isOnline && syncBanner && (
+        <div className="flex items-center gap-2 bg-sky-50 text-sky-800 border border-sky-200 text-sm px-3 py-2 rounded-lg mb-4">
+          <RefreshCw size={14} className="animate-spin" /> {syncBanner}
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-1">
         <h1 className="text-xl font-semibold text-slate-800">{inspection.templates?.name}</h1>
         {isSubmitted && (
@@ -427,7 +580,41 @@ export default function RunInspectionPage() {
               : null;
           return (
             <div key={item.id} className="bg-white border border-slate-200 rounded-xl p-4">
-              <p className="text-sm font-medium text-slate-800 mb-2">{item.question}</p>
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <p className="text-sm font-medium text-slate-800">{item.question}</p>
+                {a.pendingSync && (
+                  <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                    Not yet synced
+                  </span>
+                )}
+              </div>
+
+              {a.aiWarning && (
+                <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">
+                  <AlertTriangle size={14} className="text-amber-600 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-xs text-amber-800">
+                      <span className="font-medium">AI check:</span> {a.aiWarning} Would you like to review?
+                    </p>
+                    <div className="flex gap-2 mt-1.5">
+                      <button
+                        onClick={() => updateAnswer(item.id, "value", "fail")}
+                        className="text-xs font-medium px-2 py-1 rounded-md bg-amber-600 text-white hover:bg-amber-700"
+                      >
+                        Change to Fail
+                      </button>
+                      <button
+                        onClick={() =>
+                          setAnswers((prev) => ({ ...prev, [item.id]: { ...prev[item.id], aiWarning: null } }))
+                        }
+                        className="text-xs font-medium px-2 py-1 rounded-md border border-amber-300 text-amber-700 hover:bg-amber-100"
+                      >
+                        Dismiss — photo is fine
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {!isSubmitted && item.answer_type === "pass_fail_na" && (
                 <div className="flex gap-2 mb-2">
@@ -511,13 +698,16 @@ export default function RunInspectionPage() {
               )}
 
               {!isSubmitted && (
-                <textarea
-                  placeholder="Notes (optional)"
-                  value={a.notes}
-                  onChange={(e) => updateAnswer(item.id, "notes", e.target.value)}
-                  rows={2}
-                  className="w-full mb-2 border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                />
+                <div className="flex items-start gap-2 mb-2">
+                  <textarea
+                    placeholder="Notes (optional)"
+                    value={a.notes}
+                    onChange={(e) => updateAnswer(item.id, "notes", e.target.value)}
+                    rows={2}
+                    className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                  <VoiceInput onResult={(text) => updateAnswer(item.id, "notes", (a.notes ? a.notes + " " : "") + text)} />
+                </div>
               )}
               {isSubmitted && a.notes && <p className="text-xs text-slate-500 mb-2">{a.notes}</p>}
 
@@ -525,7 +715,7 @@ export default function RunInspectionPage() {
                 <div className="flex items-center gap-3">
                   <label className="flex items-center gap-1 text-xs text-slate-500 cursor-pointer w-fit">
                     <Camera size={14} />
-                    {a.photoFile ? a.photoFile.name : "Attach photo"}
+                    {a.photoFile ? a.photoFile.name : a.queuedPhotoName ? `${a.queuedPhotoName} (saved offline)` : "Attach photo"}
                     <input
                       type="file"
                       accept="image/*"
@@ -622,10 +812,11 @@ export default function RunInspectionPage() {
           </button>
           <button
             onClick={handleSubmit}
-            disabled={saving || submitting || !inspectorSignature}
+            disabled={saving || submitting || !inspectorSignature || !isOnline}
+            title={!isOnline ? "Submitting needs an internet connection" : undefined}
             className="flex-1 bg-slate-900 text-white text-sm font-medium py-2 rounded-lg hover:bg-slate-800 disabled:opacity-50"
           >
-            {submitting ? "Submitting..." : "Submit inspection"}
+            {submitting ? "Submitting..." : !isOnline ? "Offline — can't submit yet" : "Submit inspection"}
           </button>
         </div>
       )}

@@ -20,7 +20,12 @@ export default function AppNav() {
     { href: "/observations", label: "Observations" },
     { href: "/assets", label: "Assets" },
     { href: "/incidents", label: "Incidents" },
-    ...(isSuperAdmin ? [{ href: "/organization", label: "Organisation" }] : []),
+    ...(isSuperAdmin
+      ? [
+          { href: "/organization", label: "Organisation" },
+          { href: "/risk-heatmap", label: "Risk Heatmap" },
+        ]
+      : []),
     ...(canApproveUsers ? [{ href: "/admin/approvals", label: "Approvals" }] : []),
   ];
 
