@@ -3,38 +3,63 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthContext";
+import SignaturePad from "@/components/SignaturePad";
 
 const ROLE_TYPES = ["employee", "supervisor", "plant_operator"];
 const EXPERIENCE_LEVELS = ["apprentice", "skilled", "supervisor", "manager"];
 
+// SignaturePad produces a transparent-background PNG — fine on screen, but
+// it would render invisible on a dark surface in any future PDF/export. We
+// composite it onto a white background before storing it anywhere durable.
+function compositeToWhiteBackground(blob) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(blob);
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+      canvas.toBlob((finalBlob) => {
+        URL.revokeObjectURL(url);
+        finalBlob ? resolve(finalBlob) : reject(new Error("Could not process signature image."));
+      }, "image/png");
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
 export default function JoinSitePage() {
   const { siteId } = useParams();
-  const { session, profile, loading: authLoading } = useAuth();
+  const { session, loading: authLoading } = useAuth();
 
-  const [step, setStep] = useState("loading"); // 'loading' | 'account' | 'induction' | 'done'
+  const [step, setStep] = useState("loading");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Account creation fields (only used if not already logged in)
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [companies, setCompanies] = useState([]);
   const [selectedCompany, setSelectedCompany] = useState("");
 
-  // Site + induction content
   const [siteName, setSiteName] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
-  const [declarations, setDeclarations] = useState([]);
+  const [declarations, setDeclarations] = useState([]); // joined with declaration_templates
   const [requirements, setRequirements] = useState([]);
+  const [cardTypes, setCardTypes] = useState([]);
 
-  // Induction form fields
   const [roleType, setRoleType] = useState("employee");
   const [trade, setTrade] = useState("");
   const [experienceLevel, setExperienceLevel] = useState("apprentice");
-  const [acceptedIds, setAcceptedIds] = useState(new Set());
   const [videoConfirmed, setVideoConfirmed] = useState(false);
   const [qualificationFile, setQualificationFile] = useState(null);
+  const [declaredCardTypeId, setDeclaredCardTypeId] = useState("");
+  const [signatureBlob, setSignatureBlob] = useState(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -47,18 +72,22 @@ export default function JoinSitePage() {
     supabase.from("site_inductions").select("video_url").eq("site_id", siteId).maybeSingle().then(({ data }) => setVideoUrl(data?.video_url || ""));
     supabase
       .from("site_induction_declarations")
-      .select("*")
+      .select("*, declaration_templates(role_type, declaration_text)")
       .eq("site_id", siteId)
-      .order("sort_order")
       .then(({ data }) => setDeclarations(data || []));
     supabase
       .from("trade_qualification_requirements")
       .select("*, qualification_card_types(label, qualification_schemes(name))")
       .then(({ data }) => setRequirements(data || []));
+    supabase
+      .from("qualification_card_types")
+      .select("*, qualification_schemes(name)")
+      .order("level_rank")
+      .then(({ data }) => setCardTypes(data || []));
   }, [siteId]);
 
-  const roleDeclarations = declarations.filter((d) => d.role_type === roleType);
-  const allDeclarationsAccepted = roleDeclarations.length === 0 || roleDeclarations.every((d) => acceptedIds.has(d.id));
+  const distinctTrades = [...new Set(requirements.map((r) => r.trade))];
+  const roleDeclarations = declarations.filter((d) => d.declaration_templates?.role_type === roleType);
   const matchedRequirement = requirements.find(
     (r) => r.trade.trim().toLowerCase() === trade.trim().toLowerCase() && r.experience_level === experienceLevel
   );
@@ -97,11 +126,11 @@ export default function JoinSitePage() {
   async function handleSubmitInduction(e) {
     e.preventDefault();
     setError("");
-    if (!allDeclarationsAccepted) {
-      setError("Please accept all declarations before submitting.");
+    if (!signatureBlob) {
+      setError("Please sign to confirm you've read and accept the declarations above.");
       return;
     }
-    if (!videoConfirmed && videoUrl) {
+    if (videoUrl && !videoConfirmed) {
       setError("Please confirm you've watched the induction video.");
       return;
     }
@@ -113,6 +142,12 @@ export default function JoinSitePage() {
 
       const membershipId = await getOrCreateMembership(userId);
 
+      const whiteSignature = await compositeToWhiteBackground(signatureBlob);
+      const sigPath = `signatures/${membershipId}-${Date.now()}.png`;
+      const { error: sigUploadErr } = await supabase.storage.from("evidence").upload(sigPath, whiteSignature);
+      if (sigUploadErr) throw new Error(`Signature upload failed: ${sigUploadErr.message}`);
+      const { data: sigUrlData } = supabase.storage.from("evidence").getPublicUrl(sigPath);
+
       const { data: induction, error: indErr } = await supabase
         .from("site_membership_inductions")
         .upsert(
@@ -123,6 +158,8 @@ export default function JoinSitePage() {
             role_type: roleType,
             declarations_accepted: true,
             video_watched_at: videoUrl ? new Date().toISOString() : null,
+            signature_url: sigUrlData.publicUrl,
+            signed_at: new Date().toISOString(),
             status: "pending",
           },
           { onConflict: "site_membership_id" }
@@ -139,7 +176,7 @@ export default function JoinSitePage() {
         const { error: qualErr } = await supabase.from("qualification_uploads").insert({
           site_membership_induction_id: induction.id,
           file_url: urlData.publicUrl,
-          card_type_id: matchedRequirement?.required_card_type_id || null,
+          card_type_id: declaredCardTypeId || null,
         });
         if (qualErr) throw qualErr;
       }
@@ -210,7 +247,16 @@ export default function JoinSitePage() {
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs font-medium text-slate-500">Trade</label>
-                <input value={trade} onChange={(e) => setTrade(e.target.value)} placeholder="e.g. Plasterer" className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+                <input
+                  list="trade-options"
+                  value={trade}
+                  onChange={(e) => setTrade(e.target.value)}
+                  placeholder="Start typing..."
+                  className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                />
+                <datalist id="trade-options">
+                  {distinctTrades.map((t) => <option key={t} value={t} />)}
+                </datalist>
               </div>
               <div>
                 <label className="text-xs font-medium text-slate-500">Experience level</label>
@@ -222,35 +268,29 @@ export default function JoinSitePage() {
 
             {matchedRequirement && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
-                This role requires: <strong>{matchedRequirement.qualification_card_types?.qualification_schemes?.name} {matchedRequirement.qualification_card_types?.label}</strong>. Please upload a photo of your card below.
+                This role requires: <strong>{matchedRequirement.qualification_card_types?.qualification_schemes?.name} {matchedRequirement.qualification_card_types?.label}</strong>. Please select and upload your card below.
               </div>
             )}
 
             <div>
-              <label className="text-xs font-medium text-slate-500">Qualification card photo {matchedRequirement ? "(required)" : "(optional)"}</label>
-              <input type="file" accept="image/*" onChange={(e) => setQualificationFile(e.target.files?.[0] || null)} className="w-full mt-1 text-sm" />
+              <label className="text-xs font-medium text-slate-500">Card you're presenting {matchedRequirement ? "(required)" : "(optional)"}</label>
+              <select value={declaredCardTypeId} onChange={(e) => setDeclaredCardTypeId(e.target.value)} className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                <option value="">Select a card type...</option>
+                {cardTypes.map((c) => <option key={c.id} value={c.id}>{c.qualification_schemes?.name} — {c.label}</option>)}
+              </select>
+              <div className="mt-2 border border-slate-300 rounded-lg px-3 py-2">
+                <input type="file" accept="image/*" onChange={(e) => setQualificationFile(e.target.files?.[0] || null)} className="w-full text-sm" />
+              </div>
             </div>
 
             {roleDeclarations.length > 0 && (
               <div className="space-y-2">
                 <p className="text-xs font-medium text-slate-500">Declarations</p>
-                {roleDeclarations.map((d) => (
-                  <label key={d.id} className="flex items-start gap-2 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={acceptedIds.has(d.id)}
-                      onChange={(e) =>
-                        setAcceptedIds((prev) => {
-                          const next = new Set(prev);
-                          e.target.checked ? next.add(d.id) : next.delete(d.id);
-                          return next;
-                        })
-                      }
-                      className="mt-1"
-                    />
-                    {d.declaration_text}
-                  </label>
-                ))}
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+                  {roleDeclarations.map((d) => (
+                    <p key={d.id} className="text-sm text-slate-700">{d.declaration_templates?.declaration_text}</p>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -265,6 +305,11 @@ export default function JoinSitePage() {
                 </label>
               </div>
             )}
+
+            <div>
+              <p className="text-xs font-medium text-slate-500 mb-1">Sign to confirm you've read and accept the declarations above</p>
+              <SignaturePad onChange={setSignatureBlob} />
+            </div>
 
             <button type="submit" disabled={saving} className="w-full bg-slate-900 text-white text-sm font-medium py-2.5 rounded-lg hover:bg-slate-800 disabled:opacity-50">
               {saving ? "Submitting..." : "Submit for review"}

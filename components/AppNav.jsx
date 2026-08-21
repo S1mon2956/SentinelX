@@ -10,7 +10,7 @@ import NotificationBell from "@/components/NotificationBell";
 
 export default function AppNav() {
   const pathname = usePathname();
-  const { profile, memberships, canApproveUsers, isSuperAdmin, activeSiteId, setActiveSiteId, membershipError, signOut } = useAuth();
+  const { profile, memberships, canApproveUsers, canManageSite, isSuperAdmin, activeSiteId, setActiveSiteId, membershipError, signOut } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
 
   const links = [
@@ -24,9 +24,13 @@ export default function AppNav() {
       ? [
           { href: "/organization", label: "Organisation" },
           { href: "/risk-heatmap", label: "Risk Heatmap" },
+          { href: "/admin/qualifications", label: "Qualifications" },
         ]
       : []),
     ...(canApproveUsers ? [{ href: "/admin/approvals", label: "Approvals" }] : []),
+    ...(activeSiteId && canManageSite(activeSiteId)
+      ? [{ href: `/sites/${activeSiteId}/induction`, label: "Induction Setup" }]
+      : []),
   ];
 
   return (

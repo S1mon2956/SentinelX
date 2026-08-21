@@ -112,7 +112,7 @@ export function AuthProvider({ children }) {
   // and bounce logged-in users away from /login and /register.
   useEffect(() => {
     if (loading) return;
-    const isPublic = PUBLIC_ROUTES.includes(pathname);
+    const isPublic = PUBLIC_ROUTES.includes(pathname) || pathname.startsWith("/join/");
 
     if (!session && !isPublic) {
       router.replace("/login");
@@ -120,7 +120,7 @@ export function AuthProvider({ children }) {
     // /reset-password is exempt: Supabase's recovery link signs the user in
     // via the URL fragment before they've actually set a new password, so
     // bouncing on `session` here would boot them to /dashboard mid-reset.
-    if (session && isPublic && pathname !== "/reset-password") {
+    if (session && isPublic && pathname !== "/reset-password" && !pathname.startsWith("/join/")) {
       router.replace("/dashboard");
     }
   }, [loading, session, pathname, router]);
@@ -131,6 +131,12 @@ export function AuthProvider({ children }) {
   );
   // Someone with real work to do: a super admin, or a manager on at least one site.
   const canApproveUsers = isSuperAdmin || isManagerSomewhere;
+  function canManageSite(siteId) {
+    if (isSuperAdmin) return true;
+    return memberships.some(
+      (m) => m.site_id === siteId && (m.role === "site_manager" || m.role === "company_manager")
+    );
+  }
   const activeMembership = memberships.find((m) => m.site_id === activeSiteId) || null;
 
   async function signOut() {
@@ -147,6 +153,7 @@ export function AuthProvider({ children }) {
         memberships,
         isSuperAdmin,
         canApproveUsers,
+        canManageSite,
         activeSiteId,
         setActiveSiteId,
         activeMembership,
