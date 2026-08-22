@@ -7,6 +7,15 @@ import { useAuth } from "@/lib/AuthContext";
 import { notify } from "@/lib/notify";
 import { getLocation } from "@/lib/geolocation";
 
+// photo_path/closed_photo_path store a bare storage path now that the
+// "evidence" bucket is private — resolve a signed, time-limited URL on
+// demand for anything we display.
+async function resolveSignedUrl(path) {
+  if (!path) return null;
+  const { data } = await supabase.storage.from("evidence").createSignedUrl(path, 3600);
+  return data?.signedUrl || null;
+}
+
 export default function ObservationsPage() {
   const { profile, activeSiteId, activeMembership, isSuperAdmin } = useAuth();
   const [observations, setObservations] = useState([]);
@@ -28,7 +37,7 @@ export default function ObservationsPage() {
     let query = supabase
       .from("observations")
       .select(
-        "id, status, assigned_to, due_date, closed_at, closed_description, closed_photo_url, description, photo_url, answer_id, answers(notes, template_items(question)), users:assigned_to(full_name, email)"
+        "id, status, assigned_to, due_date, closed_at, closed_description, closed_photo_path, description, photo_path, answer_id, answers(notes, template_items(question)), users:assigned_to(full_name, email)"
       )
       .eq("site_id", activeSiteId)
       .order("created_at", { ascending: false });
@@ -38,7 +47,14 @@ export default function ObservationsPage() {
     }
 
     const { data } = await query;
-    setObservations(data || []);
+    const withUrls = await Promise.all(
+      (data || []).map(async (o) => ({
+        ...o,
+        photoSignedUrl: await resolveSignedUrl(o.photo_path),
+        closedPhotoSignedUrl: await resolveSignedUrl(o.closed_photo_path),
+      }))
+    );
+    setObservations(withUrls);
 
     const { data: members } = await supabase
       .from("site_memberships")
@@ -88,8 +104,7 @@ export default function ObservationsPage() {
     // Don't silently drop the photo on a storage failure — that would let an
     // observation get raised/closed "successfully" with its evidence missing.
     if (uploadErr) throw new Error(`Photo upload failed: ${uploadErr.message}`);
-    const { data: urlData } = supabase.storage.from("evidence").getPublicUrl(path);
-    return urlData.publicUrl;
+    return path;
   }
 
   async function handleRaise() {
@@ -99,10 +114,10 @@ export default function ObservationsPage() {
       return;
     }
 
-    let photoUrl = null;
+    let photoPath = null;
     try {
       if (newPhotoFile) {
-        photoUrl = await uploadEvidencePhoto(`observations/new-${Date.now()}-${newPhotoFile.name}`, newPhotoFile);
+        photoPath = await uploadEvidencePhoto(`${activeSiteId}/observations/new-${Date.now()}-${newPhotoFile.name}`, newPhotoFile);
       }
     } catch (e) {
       setRaiseError(e.message);
@@ -114,7 +129,7 @@ export default function ObservationsPage() {
       company_id: activeMembership?.company_id || null,
       status: "open",
       description: newDescription.trim(),
-      photo_url: photoUrl,
+      photo_path: photoPath,
     });
 
     if (error) {
@@ -130,10 +145,10 @@ export default function ObservationsPage() {
 
   async function handleClose(obsId, description, photoFile, includeLocation) {
     setActionError("");
-    let photoUrl = null;
+    let photoPath = null;
     try {
       if (photoFile) {
-        photoUrl = await uploadEvidencePhoto(`observations/${obsId}-${photoFile.name}`, photoFile);
+        photoPath = await uploadEvidencePhoto(`${activeSiteId}/observations/${obsId}-${photoFile.name}`, photoFile);
       }
     } catch (e) {
       setActionError(e.message);
@@ -147,7 +162,7 @@ export default function ObservationsPage() {
       .update({
         status: "closed",
         closed_description: description,
-        closed_photo_url: photoUrl,
+        closed_photo_path: photoPath,
         closed_at: new Date().toISOString(),
         closed_latitude: location?.latitude ?? null,
         closed_longitude: location?.longitude ?? null,
@@ -312,8 +327,8 @@ function ObservationCard({ observation: o, assignableUsers, currentUserId, onAss
             {question}
           </p>
           {notes && <p className="text-xs text-slate-500 mt-0.5">{notes}</p>}
-          {o.photo_url && (
-            <a href={o.photo_url} target="_blank" rel="noreferrer" className="text-xs text-amber-700 hover:underline">
+          {o.photoSignedUrl && (
+            <a href={o.photoSignedUrl} target="_blank" rel="noreferrer" className="text-xs text-amber-700 hover:underline">
               View photo
             </a>
           )}
@@ -442,8 +457,8 @@ function ObservationCard({ observation: o, assignableUsers, currentUserId, onAss
       {o.status === "closed" && (
         <div className="mt-2 pt-2 border-t border-slate-100 text-xs text-slate-500">
           {o.closed_description}
-          {o.closed_photo_url && (
-            <a href={o.closed_photo_url} target="_blank" rel="noreferrer" className="text-amber-700 ml-2 hover:underline">
+          {o.closedPhotoSignedUrl && (
+            <a href={o.closedPhotoSignedUrl} target="_blank" rel="noreferrer" className="text-amber-700 ml-2 hover:underline">
               View photo
             </a>
           )}

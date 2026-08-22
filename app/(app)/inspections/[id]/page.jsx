@@ -47,8 +47,25 @@ function computeScore(items, answers) {
   return Math.round((earned / possible) * 1000) / 10;
 }
 
+// Evidence/signature columns now store a bare storage path rather than a
+// permanent public URL, since the "evidence" bucket is private — a signed,
+// time-limited URL has to be resolved on demand for anything we display.
+async function resolveSignedUrl(path) {
+  if (!path) return null;
+  const { data } = await supabase.storage.from("evidence").createSignedUrl(path, 3600);
+  return data?.signedUrl || null;
+}
+
+async function withSignedSignatures(insp) {
+  const [inspectorSignatureUrl, approverSignatureUrl] = await Promise.all([
+    resolveSignedUrl(insp.inspector_signature_path),
+    resolveSignedUrl(insp.approver_signature_path),
+  ]);
+  return { ...insp, inspectorSignatureUrl, approverSignatureUrl };
+}
+
 const SELECT_FIELDS =
-  "id, template_id, template_version, site_id, company_id, inspector_id, assigned_reviewer_id, status, score, submitted_at, inspector_signature_url, inspector_signed_at, approver_signature_url, approver_signed_at, reviewed_by, reviewed_at, approved_by, approved_at, templates(name, category), reviewer:users!assigned_reviewer_id(full_name, email)";
+  "id, template_id, template_version, site_id, company_id, inspector_id, assigned_reviewer_id, status, score, submitted_at, inspector_signature_path, inspector_signed_at, approver_signature_path, approver_signed_at, reviewed_by, reviewed_at, approved_by, approved_at, templates(name, category), reviewer:users!assigned_reviewer_id(full_name, email)";
 
 export default function RunInspectionPage() {
   const { id } = useParams();
@@ -100,7 +117,7 @@ export default function RunInspectionPage() {
       setLoading(false);
       return;
     }
-    setInspection(insp);
+    setInspection(await withSignedSignatures(insp));
     setSelectedReviewerId(insp.assigned_reviewer_id || "");
 
     const { data: managers } = await supabase
@@ -120,19 +137,22 @@ export default function RunInspectionPage() {
 
     const { data: existingAnswers } = await supabase
       .from("answers")
-      .select("id, template_item_id, value, notes, evidence(id, file_url)")
+      .select("id, template_item_id, value, notes, evidence(id, file_path)")
       .eq("inspection_id", id);
 
     const mapped = {};
-    (existingAnswers || []).forEach((a) => {
+    for (const a of existingAnswers || []) {
+      const evidenceWithUrls = await Promise.all(
+        (a.evidence || []).map(async (ev) => ({ ...ev, signedUrl: await resolveSignedUrl(ev.file_path) }))
+      );
       mapped[a.template_item_id] = {
         answerId: a.id,
         value: a.value || "",
         notes: a.notes || "",
         photoFile: null,
-        evidence: a.evidence || [],
+        evidence: evidenceWithUrls,
       };
-    });
+    }
 
     // Recover anything still sitting in the offline queue from a previous
     // session — e.g. the tab was closed while offline before it could sync.
@@ -265,17 +285,16 @@ export default function RunInspectionPage() {
     const photoToUpload = a.photoFile || a.queuedPhotoBlob;
     const photoName = a.photoFile?.name || a.queuedPhotoName;
     if (photoToUpload) {
-      const path = `evidence/${answerId}-${Date.now()}-${photoName}`;
+      const path = `${inspection.site_id}/evidence/${answerId}-${Date.now()}-${photoName}`;
       const { error: uploadErr } = await supabase.storage.from("evidence").upload(path, photoToUpload);
       if (uploadErr) throw new Error(`Photo upload failed: ${uploadErr.message}`);
 
-      const { data: urlData } = supabase.storage.from("evidence").getPublicUrl(path);
       const location = a.includeLocation ? await getLocation() : null;
       const { data: evRow, error: evErr } = await supabase
         .from("evidence")
         .insert({
           answer_id: answerId,
-          file_url: urlData.publicUrl,
+          file_path: path,
           captured_by: profile?.id,
           latitude: location?.latitude ?? null,
           longitude: location?.longitude ?? null,
@@ -283,7 +302,8 @@ export default function RunInspectionPage() {
         .select()
         .single();
       if (evErr) throw evErr;
-      newEvidence = [...(a.evidence || []), evRow];
+      const signedUrl = await resolveSignedUrl(evRow.file_path);
+      newEvidence = [...(a.evidence || []), { ...evRow, signedUrl }];
     }
 
     if (item.answer_type === "pass_fail_na" && a.value === "fail" && item.failure_workflow !== "none") {
@@ -376,11 +396,10 @@ export default function RunInspectionPage() {
   }
 
   async function uploadSignature(blob, role) {
-    const path = `signatures/${id}-${role}-${Date.now()}.png`;
+    const path = `${inspection.site_id}/signatures/${id}-${role}-${Date.now()}.png`;
     const { error: uploadErr } = await supabase.storage.from("evidence").upload(path, blob);
     if (uploadErr) throw new Error(`Signature upload failed: ${uploadErr.message}`);
-    const { data: urlData } = supabase.storage.from("evidence").getPublicUrl(path);
-    return urlData.publicUrl;
+    return path;
   }
 
   async function handleSaveProgress() {
@@ -417,7 +436,7 @@ export default function RunInspectionPage() {
     try {
       await flushQueue();
       const score = computeScore(items, answers);
-      const signatureUrl = await uploadSignature(inspectorSignature, "inspector");
+      const signaturePath = await uploadSignature(inspectorSignature, "inspector");
 
       const { data: updated, error: submitErr } = await supabase
         .from("inspections")
@@ -426,14 +445,14 @@ export default function RunInspectionPage() {
           submitted_at: new Date().toISOString(),
           score,
           assigned_reviewer_id: selectedReviewerId || null,
-          inspector_signature_url: signatureUrl,
+          inspector_signature_path: signaturePath,
           inspector_signed_at: new Date().toISOString(),
         })
         .eq("id", id)
         .select(SELECT_FIELDS)
         .single();
       if (submitErr) throw submitErr;
-      setInspection(updated);
+      setInspection(await withSignedSignatures(updated));
 
       if (updated.assigned_reviewer_id) {
         notify({
@@ -482,7 +501,7 @@ export default function RunInspectionPage() {
       setError(err.message);
       return;
     }
-    setInspection(updated);
+    setInspection(await withSignedSignatures(updated));
 
     if (newStatus === "approved") {
       notify({
@@ -510,11 +529,11 @@ export default function RunInspectionPage() {
     }
     setAdvancing(true);
     try {
-      const signatureUrl = await uploadSignature(approverSignature, "approver");
+      const signaturePath = await uploadSignature(approverSignature, "approver");
       await advanceStatus("approved", {
         approved_by: profile.id,
         approved_at: new Date().toISOString(),
-        approver_signature_url: signatureUrl,
+        approver_signature_path: signaturePath,
         approver_signed_at: new Date().toISOString(),
       });
     } catch (e) {
@@ -823,7 +842,7 @@ export default function RunInspectionPage() {
                   {a.evidence.map((ev) => (
                     <a
                       key={ev.id}
-                      href={ev.file_url}
+                      href={ev.signedUrl}
                       target="_blank"
                       rel="noreferrer"
                       className="text-xs text-amber-700 hover:underline"
@@ -862,17 +881,17 @@ export default function RunInspectionPage() {
         </p>
       )}
 
-      {isSubmitted && inspection.inspector_signature_url && (
+      {isSubmitted && inspection.inspectorSignatureUrl && (
         <div className="mb-3">
           <p className="text-xs text-slate-400 mb-1">Inspector's signature</p>
-          <img src={inspection.inspector_signature_url} alt="Inspector signature" className="border border-slate-200 rounded-lg h-16" />
+          <img src={inspection.inspectorSignatureUrl} alt="Inspector signature" className="border border-slate-200 rounded-lg h-16" />
         </div>
       )}
 
-      {isSubmitted && inspection.approver_signature_url && (
+      {isSubmitted && inspection.approverSignatureUrl && (
         <div className="mb-3">
           <p className="text-xs text-slate-400 mb-1">Approver's signature</p>
-          <img src={inspection.approver_signature_url} alt="Approver signature" className="border border-slate-200 rounded-lg h-16" />
+          <img src={inspection.approverSignatureUrl} alt="Approver signature" className="border border-slate-200 rounded-lg h-16" />
         </div>
       )}
 

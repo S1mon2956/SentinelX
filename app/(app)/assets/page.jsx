@@ -11,6 +11,15 @@ const ASSET_TYPE_CATEGORIES = [
   { value: "tools_equipment", label: "Tools & Equipment" },
 ];
 
+// thorough_exam_cert_path stores a bare storage path now that the
+// "evidence" bucket is private — resolve a signed, time-limited URL on
+// demand for anything we display.
+async function resolveSignedUrl(path) {
+  if (!path) return null;
+  const { data } = await supabase.storage.from("evidence").createSignedUrl(path, 3600);
+  return data?.signedUrl || null;
+}
+
 function expiryStatus(asset) {
   if (!asset.asset_types?.requires_thorough_exam) return null;
   if (!asset.thorough_exam_expiry) return { label: "Cert missing", classes: "bg-rose-100 text-rose-700" };
@@ -57,7 +66,7 @@ export default function AssetsPage() {
 
     let query = supabase
       .from("assets")
-      .select("id, reference_number, serial_number, thorough_exam_expiry, thorough_exam_cert_url, asset_types(id, name, requires_thorough_exam)")
+      .select("id, reference_number, serial_number, thorough_exam_expiry, thorough_exam_cert_path, asset_types(id, name, requires_thorough_exam)")
       .eq("site_id", activeSiteId)
       .is("archived_at", null)
       .order("reference_number");
@@ -74,7 +83,10 @@ export default function AssetsPage() {
     if (assetErr || typeErr) {
       setError(assetErr?.message || typeErr?.message);
     } else {
-      setAssets(assetData || []);
+      const withUrls = await Promise.all(
+        (assetData || []).map(async (a) => ({ ...a, certSignedUrl: await resolveSignedUrl(a.thorough_exam_cert_path) }))
+      );
+      setAssets(withUrls);
       setAssetTypes(typeData || []);
       if (!assetTypeId && typeData?.length > 0) setAssetTypeId(typeData[0].id);
     }
@@ -127,9 +139,9 @@ export default function AssetsPage() {
 
     setSaving(true);
 
-    let certUrl = null;
+    let certPath = null;
     if (certFile) {
-      const path = `assets/${referenceNumber.trim()}-${Date.now()}-${certFile.name}`;
+      const path = `${activeSiteId}/assets/${referenceNumber.trim()}-${Date.now()}-${certFile.name}`;
       const { error: uploadErr } = await supabase.storage.from("evidence").upload(path, certFile);
       // Don't silently drop the cert on a storage failure — that would let an
       // asset requiring a valid exam get registered as if it were compliant.
@@ -138,8 +150,7 @@ export default function AssetsPage() {
         setFormError(`Certificate upload failed: ${uploadErr.message}`);
         return;
       }
-      const { data: urlData } = supabase.storage.from("evidence").getPublicUrl(path);
-      certUrl = urlData.publicUrl;
+      certPath = path;
     }
 
     const { error: insertErr } = await supabase.from("assets").insert({
@@ -150,7 +161,7 @@ export default function AssetsPage() {
       serial_number: serialNumber.trim(),
       power_output: powerOutput.trim() || null,
       thorough_exam_expiry: thoroughExamExpiry || null,
-      thorough_exam_cert_url: certUrl,
+      thorough_exam_cert_path: certPath,
     });
 
     setSaving(false);
@@ -363,9 +374,9 @@ export default function AssetsPage() {
                   <span className="text-slate-400 font-normal">— {a.asset_types?.name || "Unknown type"}</span>
                 </p>
                 <p className="text-xs text-slate-500 mt-0.5">Serial: {a.serial_number}</p>
-                {a.thorough_exam_cert_url && (
+                {a.certSignedUrl && (
                   <a
-                    href={a.thorough_exam_cert_url}
+                    href={a.certSignedUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="text-xs text-amber-700 hover:underline"

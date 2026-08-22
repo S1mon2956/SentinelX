@@ -67,7 +67,13 @@ export default function JoinSitePage() {
   }, [authLoading, session]);
 
   useEffect(() => {
-    supabase.from("companies").select("id, name").then(({ data }) => setCompanies(data || []));
+    // Scoped through site_companies so this only lists companies actually
+    // linked to this site, not every company across every client.
+    supabase
+      .from("site_companies")
+      .select("companies(id, name)")
+      .eq("site_id", siteId)
+      .then(({ data }) => setCompanies((data || []).map((r) => r.companies).filter(Boolean)));
     supabase.from("site_public_info").select("name").eq("id", siteId).single().then(({ data }) => setSiteName(data?.name || ""));
     supabase.from("site_inductions").select("video_url").eq("site_id", siteId).maybeSingle().then(({ data }) => setVideoUrl(data?.video_url || ""));
     supabase
