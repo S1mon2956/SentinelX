@@ -25,6 +25,7 @@ export default function AppNav() {
           { href: "/organization", label: "Organisation" },
           { href: "/risk-heatmap", label: "Risk Heatmap" },
           { href: "/admin/qualifications", label: "Qualifications" },
+          { href: "/admin/iso", label: "ISO Excellence" },
         ]
       : []),
     ...(canApproveUsers ? [{ href: "/admin/approvals", label: "Approvals" }] : []),
