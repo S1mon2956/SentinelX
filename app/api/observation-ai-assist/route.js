@@ -13,7 +13,7 @@ export async function POST(request) {
 
   if (!process.env.ANTHROPIC_API_KEY) {
     console.error("ANTHROPIC_API_KEY is not set — skipping AI assist.");
-    return Response.json({ skipped: true });
+    return Response.json({ skipped: true, notConfigured: true });
   }
 
   const prompt = `You are assisting a health & safety manager reviewing a failed inspection finding.

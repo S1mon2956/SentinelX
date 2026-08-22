@@ -258,11 +258,14 @@ function ObservationCard({ observation: o, assignableUsers, currentUserId, onAss
   const [description, setDescription] = useState("");
   const [photoFile, setPhotoFile] = useState(null);
   const [includeLocation, setIncludeLocation] = useState(false);
-  const [aiAssist, setAiAssist] = useState(null);
+  const [aiSuggestion, setAiSuggestion] = useState(null);
+  const [aiError, setAiError] = useState("");
+  const [aiNotConfigured, setAiNotConfigured] = useState(false);
   const [loadingAi, setLoadingAi] = useState(false);
 
   async function fetchAiAssist() {
     setLoadingAi(true);
+    setAiError("");
     try {
       const res = await fetch("/api/observation-ai-assist", {
         method: "POST",
@@ -274,14 +277,23 @@ function ObservationCard({ observation: o, assignableUsers, currentUserId, onAss
         }),
       });
       const result = await res.json();
-      setAiAssist(result);
-      if (result.suggestedDueDays) {
-        const d = new Date();
-        d.setDate(d.getDate() + result.suggestedDueDays);
-        setDueDate(d.toISOString().slice(0, 10));
+      if (!res.ok) {
+        setAiError(result.error || "AI assist failed. Try again in a moment.");
+      } else if (result.notConfigured) {
+        setAiNotConfigured(true);
+      } else if (!result.skipped) {
+        setAiSuggestion(result);
+        if (result.suggestedDueDays) {
+          const d = new Date();
+          d.setDate(d.getDate() + result.suggestedDueDays);
+          setDueDate(d.toISOString().slice(0, 10));
+        }
       }
+      // result.skipped with no notConfigured/error means the model had
+      // nothing useful to say this time — not a failure, just no
+      // suggestion, so the button stays available to try again.
     } catch {
-      // Silent fail — this is a helpful extra, not required for the page to work.
+      setAiError("Couldn't reach the AI assist service — check your connection and try again.");
     }
     setLoadingAi(false);
   }
@@ -342,7 +354,15 @@ function ObservationCard({ observation: o, assignableUsers, currentUserId, onAss
             Save assignment
           </button>
 
-          {!aiAssist && (
+          {aiNotConfigured && (
+            <span
+              className="text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 text-slate-400 cursor-not-allowed"
+              title="AI assist hasn't been set up for this workspace yet"
+            >
+              AI suggestions unavailable
+            </span>
+          )}
+          {!aiSuggestion && !aiNotConfigured && (
             <button
               onClick={fetchAiAssist}
               disabled={loadingAi}
@@ -351,6 +371,7 @@ function ObservationCard({ observation: o, assignableUsers, currentUserId, onAss
               {loadingAi ? "Thinking..." : "Get AI suggestions"}
             </button>
           )}
+          {aiError && <p className="text-xs text-rose-600 w-full">{aiError}</p>}
 
           {isMine && !closing && (
             <button
@@ -363,29 +384,29 @@ function ObservationCard({ observation: o, assignableUsers, currentUserId, onAss
         </div>
       )}
 
-      {aiAssist && (
+      {aiSuggestion && (
         <div className="mt-2 pt-2 border-t border-slate-100 space-y-1">
-          {aiAssist.complianceNote && (
+          {aiSuggestion.complianceNote && (
             <p className="text-xs text-slate-500">
-              <span className="font-medium text-slate-600">Compliance note:</span> {aiAssist.complianceNote}
+              <span className="font-medium text-slate-600">Compliance note:</span> {aiSuggestion.complianceNote}
             </p>
           )}
           <div className="flex items-center gap-2">
-            {aiAssist.riskLevel && (
+            {aiSuggestion.riskLevel && (
               <span
                 className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                  aiAssist.riskLevel === "high"
+                  aiSuggestion.riskLevel === "high"
                     ? "bg-rose-100 text-rose-700"
-                    : aiAssist.riskLevel === "medium"
+                    : aiSuggestion.riskLevel === "medium"
                     ? "bg-amber-100 text-amber-700"
                     : "bg-emerald-100 text-emerald-700"
                 }`}
               >
-                {aiAssist.riskLevel} risk
+                {aiSuggestion.riskLevel} risk
               </span>
             )}
-            {aiAssist.suggestedAction && (
-              <p className="text-xs text-slate-600">{aiAssist.suggestedAction}</p>
+            {aiSuggestion.suggestedAction && (
+              <p className="text-xs text-slate-600">{aiSuggestion.suggestedAction}</p>
             )}
           </div>
         </div>

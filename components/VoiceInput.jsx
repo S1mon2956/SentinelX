@@ -44,11 +44,11 @@ export default function VoiceInput({ onResult, className = "" }) {
       type="button"
       onClick={toggleListening}
       title={listening ? "Stop listening" : "Dictate with your voice"}
-      className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-full ${
+      className={`shrink-0 flex items-center justify-center min-w-[44px] min-h-[44px] rounded-full ${
         listening ? "bg-rose-500 text-white animate-pulse" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
       } ${className}`}
     >
-      {listening ? <MicOff size={14} /> : <Mic size={14} />}
+      {listening ? <MicOff size={16} /> : <Mic size={16} />}
     </button>
   );
 }

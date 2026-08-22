@@ -801,7 +801,7 @@ export default function RunInspectionPage() {
                     <input
                       type="file"
                       accept="image/*"
-                      className="hidden"
+                      className="sr-only"
                       onChange={(e) => updateAnswer(item.id, "photoFile", e.target.files?.[0] || null)}
                     />
                   </label>
@@ -888,7 +888,7 @@ export default function RunInspectionPage() {
           <button
             onClick={handleSaveProgress}
             disabled={saving || submitting}
-            className="text-sm font-medium px-4 py-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            className="min-h-[44px] text-sm font-medium px-4 py-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save progress"}
           </button>
@@ -896,7 +896,7 @@ export default function RunInspectionPage() {
             onClick={handleSubmit}
             disabled={saving || submitting || !inspectorSignature || !isOnline}
             title={!isOnline ? "Submitting needs an internet connection" : undefined}
-            className="flex-1 bg-slate-900 text-white text-sm font-medium py-2 rounded-lg hover:bg-slate-800 disabled:opacity-50"
+            className="flex-1 min-h-[44px] bg-slate-900 text-white text-sm font-medium py-2 rounded-lg hover:bg-slate-800 disabled:opacity-50"
           >
             {submitting ? "Submitting..." : !isOnline ? "Offline — can't submit yet" : "Submit inspection"}
           </button>

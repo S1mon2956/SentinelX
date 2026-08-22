@@ -20,7 +20,11 @@ export default function LoginPage() {
 
     setLoading(false);
     if (error) {
-      setError(error.message);
+      setError(
+        error.message === "Invalid login credentials"
+          ? "That email and password don't match. Check for typos, or use \"Forgot your password?\" below."
+          : error.message
+      );
       return;
     }
     router.push("/dashboard");
