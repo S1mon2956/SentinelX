@@ -134,6 +134,10 @@ export default function JoinSitePage() {
       setError("Please confirm you've watched the induction video.");
       return;
     }
+    if (matchedRequirement && (!declaredCardTypeId || !qualificationFile)) {
+      setError("Please select your card type and upload a photo of it — this role requires it.");
+      return;
+    }
     setSaving(true);
     try {
       const { data: userData } = await supabase.auth.getUser();
