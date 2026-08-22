@@ -26,8 +26,8 @@ export default function ApprovalsPage() {
         companies(name),
         site_membership_inductions(
           id, trade, experience_level, role_type, declarations_accepted, video_watched_at,
-          signature_url, status, reviewer_notes, reviewed_at,
-          qualification_uploads(id, file_url, qualification_card_types(label, qualification_schemes(name)))
+          signature_path, status, reviewer_notes, reviewed_at,
+          qualification_uploads(id, file_path, qualification_card_types(label, qualification_schemes(name)))
         )
       `)
       .eq("status", "pending")
@@ -37,8 +37,25 @@ export default function ApprovalsPage() {
       ...r,
       induction: Array.isArray(r.site_membership_inductions) ? r.site_membership_inductions[0] : r.site_membership_inductions,
     }));
-    setRequests(normalized);
+    const withSignedUrls = await Promise.all(
+      normalized.map(async (r) => {
+        if (!r.induction) return r;
+        const signatureSignedUrl = await resolveSignedUrl(r.induction.signature_path);
+        const qualification_uploads = await Promise.all(
+          (r.induction.qualification_uploads || []).map(async (q) => ({ ...q, signedUrl: await resolveSignedUrl(q.file_path) }))
+        );
+        return { ...r, induction: { ...r.induction, signatureSignedUrl, qualification_uploads } };
+      })
+    );
+    setRequests(withSignedUrls);
     setLoading(false);
+  }
+
+  async function resolveSignedUrl(path) {
+    if (!path) return null;
+    const { data, error } = await supabase.storage.from("personal-documents").createSignedUrl(path, 300);
+    if (error) return null;
+    return data?.signedUrl || null;
   }
 
   // A site_manager sees every request for their site; a company_manager
@@ -158,10 +175,10 @@ export default function ApprovalsPage() {
                     <strong>Video watched:</strong> {r.induction.video_watched_at ? "Yes" : "No"} ·{" "}
                     <strong>Declarations signed:</strong> {r.induction.declarations_accepted ? "Yes" : "No"}
                   </p>
-                  {r.induction.signature_url && (
+                  {r.induction.signatureSignedUrl && (
                     <div>
                       <p className="font-medium mb-1">Signature</p>
-                      <img src={r.induction.signature_url} alt="Applicant signature" className="border border-slate-200 rounded bg-white h-16" />
+                      <img src={r.induction.signatureSignedUrl} alt="Applicant signature" className="border border-slate-200 rounded bg-white h-16" />
                     </div>
                   )}
                   {(r.induction.qualification_uploads || []).map((q) => (
@@ -170,9 +187,13 @@ export default function ApprovalsPage() {
                         <strong>Card presented:</strong>{" "}
                         {q.qualification_card_types ? `${q.qualification_card_types.qualification_schemes?.name} ${q.qualification_card_types.label}` : "Unspecified"}
                       </p>
-                      <a href={q.file_url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline">
-                        View uploaded card photo
-                      </a>
+                      {q.signedUrl ? (
+                        <a href={q.signedUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline">
+                          View uploaded card photo
+                        </a>
+                      ) : (
+                        <span className="text-slate-400">Photo unavailable</span>
+                      )}
                     </div>
                   ))}
                   {r.induction.reviewer_notes && (

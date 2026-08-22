@@ -146,12 +146,6 @@ export default function JoinSitePage() {
 
       const membershipId = await getOrCreateMembership(userId);
 
-      const whiteSignature = await compositeToWhiteBackground(signatureBlob);
-      const sigPath = `signatures/${membershipId}-${Date.now()}.png`;
-      const { error: sigUploadErr } = await supabase.storage.from("evidence").upload(sigPath, whiteSignature);
-      if (sigUploadErr) throw new Error(`Signature upload failed: ${sigUploadErr.message}`);
-      const { data: sigUrlData } = supabase.storage.from("evidence").getPublicUrl(sigPath);
-
       const { data: induction, error: indErr } = await supabase
         .from("site_membership_inductions")
         .upsert(
@@ -162,8 +156,6 @@ export default function JoinSitePage() {
             role_type: roleType,
             declarations_accepted: true,
             video_watched_at: videoUrl ? new Date().toISOString() : null,
-            signature_url: sigUrlData.publicUrl,
-            signed_at: new Date().toISOString(),
             status: "pending",
           },
           { onConflict: "site_membership_id" }
@@ -172,14 +164,23 @@ export default function JoinSitePage() {
         .single();
       if (indErr) throw indErr;
 
+      const whiteSignature = await compositeToWhiteBackground(signatureBlob);
+      const sigPath = `${userId}/${induction.id}/signature-${Date.now()}.png`;
+      const { error: sigUploadErr } = await supabase.storage.from("personal-documents").upload(sigPath, whiteSignature);
+      if (sigUploadErr) throw new Error(`Signature upload failed: ${sigUploadErr.message}`);
+      const { error: sigUpdateErr } = await supabase
+        .from("site_membership_inductions")
+        .update({ signature_path: sigPath, signed_at: new Date().toISOString() })
+        .eq("id", induction.id);
+      if (sigUpdateErr) throw sigUpdateErr;
+
       if (qualificationFile) {
-        const path = `qualifications/${induction.id}-${Date.now()}-${qualificationFile.name}`;
-        const { error: uploadErr } = await supabase.storage.from("evidence").upload(path, qualificationFile);
+        const path = `${userId}/${induction.id}/card-${Date.now()}-${qualificationFile.name}`;
+        const { error: uploadErr } = await supabase.storage.from("personal-documents").upload(path, qualificationFile);
         if (uploadErr) throw new Error(`Card upload failed: ${uploadErr.message}`);
-        const { data: urlData } = supabase.storage.from("evidence").getPublicUrl(path);
         const { error: qualErr } = await supabase.from("qualification_uploads").insert({
           site_membership_induction_id: induction.id,
-          file_url: urlData.publicUrl,
+          file_path: path,
           card_type_id: declaredCardTypeId || null,
         });
         if (qualErr) throw qualErr;
