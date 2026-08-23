@@ -215,7 +215,7 @@ export default function TemplateDetailPage() {
       return;
     }
 
-    router.push("/templates");
+    router.push("/inspections");
   }
 
   if (loading) {

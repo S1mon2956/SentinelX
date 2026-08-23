@@ -19,9 +19,11 @@ export default function AppNav() {
   const canManageReviewers =
     activeSiteId && (isSuperAdmin || memberships.some((m) => m.site_id === activeSiteId && m.role === "site_manager"));
 
+  // Risk Heatmap folded into Dashboard, Templates into Inspections, and
+  // Qualifications/Approvals/Induction Setup all folded into the per-site
+  // Inductions page — see app/(app)/sites/[siteId]/induction/page.jsx.
   const links = [
     { href: "/dashboard", label: "Dashboard" },
-    { href: "/templates", label: "Templates" },
     { href: "/inspections", label: "Inspections" },
     { href: "/observations", label: "Observations" },
     { href: "/assets", label: "Assets" },
@@ -29,14 +31,11 @@ export default function AppNav() {
     ...(isSuperAdmin
       ? [
           { href: "/organization", label: "Organisation" },
-          { href: "/risk-heatmap", label: "Risk Heatmap" },
-          { href: "/admin/qualifications", label: "Qualifications" },
           { href: "/admin/iso", label: "ISO Excellence" },
         ]
       : []),
-    ...(canApproveUsers ? [{ href: "/admin/approvals", label: "Approvals" }] : []),
-    ...(activeSiteId && canManageSite(activeSiteId)
-      ? [{ href: `/sites/${activeSiteId}/induction`, label: "Induction Setup" }]
+    ...(activeSiteId && (canManageSite(activeSiteId) || isSuperAdmin)
+      ? [{ href: `/sites/${activeSiteId}/induction`, label: "Inductions" }]
       : []),
     ...(canManageReviewers ? [{ href: `/sites/${activeSiteId}/reviewers`, label: "External Reviewers" }] : []),
   ];

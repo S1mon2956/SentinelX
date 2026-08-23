@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, GripVertical } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import { useAuth } from "@/lib/AuthContext";
 import { ANSWER_TYPES, FAILURE_WORKFLOWS, OPTION_COLORS } from "@/lib/templateConstants";
 
 function blankItem() {
@@ -20,6 +21,7 @@ function blankItem() {
 
 export default function NewTemplatePage() {
   const router = useRouter();
+  const { profile, activeSiteId, activeMembership } = useAuth();
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
   const [items, setItems] = useState([blankItem()]);
@@ -127,13 +129,40 @@ export default function NewTemplatePage() {
       snapshot: { name: template.name, category: template.category, items: rows },
     });
 
-    setSaving(false);
     if (versionError) {
+      setSaving(false);
       setError(versionError.message);
       return;
     }
 
-    router.push("/templates");
+    // Auto-start an inspection on this brand-new template instead of
+    // dropping back to a templates list — the point of creating a template
+    // inline from "New Inspection" is to jump straight into using it.
+    if (activeSiteId) {
+      const { data: inspection, error: inspectionError } = await supabase
+        .from("inspections")
+        .insert({
+          template_id: template.id,
+          template_version: 1,
+          site_id: activeSiteId,
+          company_id: activeMembership?.company_id || null,
+          inspector_id: profile?.id,
+          status: "draft",
+        })
+        .select()
+        .single();
+
+      setSaving(false);
+      if (inspectionError) {
+        setError(inspectionError.message);
+        return;
+      }
+      router.push(`/inspections/${inspection.id}`);
+      return;
+    }
+
+    setSaving(false);
+    router.push("/inspections");
   }
 
   return (
