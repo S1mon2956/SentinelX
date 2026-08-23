@@ -43,7 +43,7 @@ export default function RiskHeatmapPage() {
         supabase.from("incidents").select("site_id, created_at"),
         supabase
           .from("answers")
-          .select("value, template_items(category_tag, question), inspections!inner(site_id)")
+          .select("value, template_items(issue_categories(label)), inspections!inner(site_id)")
           .eq("value", "fail"),
       ]);
 
@@ -67,12 +67,14 @@ export default function RiskHeatmapPage() {
         (inc) => inc.site_id === site.id && now - new Date(inc.created_at).getTime() < DAYS_30
       ).length;
 
-      // Repeat offender: most common failed category on this site
+      // Repeat offender: most common failed category on this site. Grouped
+      // by the controlled category picklist only, same as the dashboard —
+      // no fallback to raw question text.
       const tagCounts = {};
       (failedAnswers || [])
         .filter((a) => a.inspections?.site_id === site.id)
         .forEach((a) => {
-          const tag = a.template_items?.category_tag || a.template_items?.question || "Uncategorized";
+          const tag = a.template_items?.issue_categories?.label || "Uncategorized";
           tagCounts[tag] = (tagCounts[tag] || 0) + 1;
         });
       const topIssue = Object.entries(tagCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;

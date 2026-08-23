@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, GripVertical } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
@@ -11,7 +11,7 @@ function blankItem() {
     key: crypto.randomUUID(),
     question: "",
     answer_type: "pass_fail_na",
-    category_tag: "",
+    category_id: "",
     weight: 1,
     failure_workflow: "none",
     options: [],
@@ -23,8 +23,17 @@ export default function NewTemplatePage() {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
   const [items, setItems] = useState([blankItem()]);
+  const [issueCategories, setIssueCategories] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    supabase
+      .from("issue_categories")
+      .select("id, label")
+      .order("sort_order")
+      .then(({ data }) => setIssueCategories(data || []));
+  }, []);
 
   function updateItem(key, field, value) {
     setItems((its) => its.map((it) => (it.key === key ? { ...it, [field]: value } : it)));
@@ -93,7 +102,7 @@ export default function NewTemplatePage() {
       template_id: template.id,
       question: it.question.trim(),
       answer_type: it.answer_type,
-      category_tag: it.category_tag.trim() || null,
+      category_id: it.category_id || null,
       weight: Number(it.weight) || 1,
       failure_workflow: it.failure_workflow,
       sort_order: idx,
@@ -191,13 +200,17 @@ export default function NewTemplatePage() {
                 </select>
               </div>
               <div>
-                <label className="text-xs text-slate-400">Category tag</label>
-                <input
-                  value={it.category_tag}
-                  onChange={(e) => updateItem(it.key, "category_tag", e.target.value)}
-                  placeholder="e.g. PPE, Fire safety"
+                <label className="text-xs text-slate-400">Category</label>
+                <select
+                  value={it.category_id}
+                  onChange={(e) => updateItem(it.key, "category_id", e.target.value)}
                   className="w-full mt-1 border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
-                />
+                >
+                  <option value="">No category</option>
+                  {issueCategories.map((c) => (
+                    <option key={c.id} value={c.id}>{c.label}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="text-xs text-slate-400">

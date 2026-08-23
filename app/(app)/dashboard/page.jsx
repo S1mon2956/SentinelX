@@ -31,7 +31,7 @@ export default function DashboardPage() {
 
     let failedAnswersQuery = supabase
       .from("answers")
-      .select("value, template_items(question, category_tag), inspections!inner(site_id, company_id)")
+      .select("value, template_items(issue_categories(label)), inspections!inner(site_id, company_id)")
       .eq("value", "fail")
       .eq("inspections.site_id", activeSiteId);
 
@@ -71,9 +71,12 @@ export default function DashboardPage() {
       .slice(-6);
     setScoreTrend(trend);
 
+    // Grouped by the controlled category picklist only — no falling back to
+    // raw question text, since that's exactly what let free-text typos
+    // fragment the same issue into separate buckets.
     const counts = {};
     (failedAnswers || []).forEach((a) => {
-      const label = a.template_items?.category_tag || a.template_items?.question || "Uncategorized";
+      const label = a.template_items?.issue_categories?.label || "Uncategorized";
       counts[label] = (counts[label] || 0) + 1;
     });
     const top = Object.entries(counts)

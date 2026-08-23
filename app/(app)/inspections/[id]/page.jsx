@@ -92,7 +92,10 @@ export default function RunInspectionPage() {
 
   const isOwnInspection = !!profile?.id && profile.id === inspection?.inspector_id;
   const hasManagerRole =
-    isSuperAdmin || activeMembership?.role === "site_manager" || activeMembership?.role === "company_manager";
+    isSuperAdmin ||
+    activeMembership?.role === "site_manager" ||
+    activeMembership?.role === "company_manager" ||
+    activeMembership?.role === "external_reviewer";
   const canReview = hasManagerRole && !isOwnInspection;
 
   useEffect(() => {
@@ -125,7 +128,7 @@ export default function RunInspectionPage() {
       .select("user_id, users!user_id(full_name, email)")
       .eq("site_id", insp.site_id)
       .eq("status", "approved")
-      .in("role", ["site_manager", "company_manager"]);
+      .in("role", ["site_manager", "company_manager", "external_reviewer"]);
     setReviewers((managers || []).filter((m) => m.user_id !== insp.inspector_id));
 
     const { data: templateItems } = await supabase
@@ -468,7 +471,7 @@ export default function RunInspectionPage() {
           .select("user_id")
           .eq("site_id", updated.site_id)
           .eq("status", "approved")
-          .in("role", ["site_manager", "company_manager"]);
+          .in("role", ["site_manager", "company_manager", "external_reviewer"]);
         (managersToNotify || [])
           .filter((r) => r.user_id !== updated.inspector_id)
           .forEach((r) => {

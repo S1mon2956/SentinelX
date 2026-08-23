@@ -13,6 +13,12 @@ export default function AppNav() {
   const { profile, memberships, canApproveUsers, canManageSite, isSuperAdmin, activeSiteId, setActiveSiteId, membershipError, signOut } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
 
+  // Deliberately narrower than canManageSite: only a full site manager or a
+  // super admin can manage external reviewers, matching the phase26 INSERT
+  // policy — a company manager can't add a site-wide reviewer.
+  const canManageReviewers =
+    activeSiteId && (isSuperAdmin || memberships.some((m) => m.site_id === activeSiteId && m.role === "site_manager"));
+
   const links = [
     { href: "/dashboard", label: "Dashboard" },
     { href: "/templates", label: "Templates" },
@@ -32,6 +38,7 @@ export default function AppNav() {
     ...(activeSiteId && canManageSite(activeSiteId)
       ? [{ href: `/sites/${activeSiteId}/induction`, label: "Induction Setup" }]
       : []),
+    ...(canManageReviewers ? [{ href: `/sites/${activeSiteId}/reviewers`, label: "External Reviewers" }] : []),
   ];
 
   return (

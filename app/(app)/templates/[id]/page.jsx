@@ -12,7 +12,7 @@ function blankItem() {
     id: null,
     question: "",
     answer_type: "pass_fail_na",
-    category_tag: "",
+    category_id: "",
     weight: 1,
     failure_workflow: "none",
     options: [],
@@ -28,6 +28,7 @@ export default function TemplateDetailPage() {
   const [currentVersion, setCurrentVersion] = useState(1);
   const [items, setItems] = useState([]);
   const [removedIds, setRemovedIds] = useState([]);
+  const [issueCategories, setIssueCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -38,17 +39,15 @@ export default function TemplateDetailPage() {
 
   async function load() {
     setLoading(true);
-    const { data: template } = await supabase
-      .from("templates")
-      .select("id, name, category, current_version")
-      .eq("id", id)
-      .single();
-
-    const { data: templateItems } = await supabase
-      .from("template_items")
-      .select("id, question, answer_type, category_tag, weight, failure_workflow, sort_order, options")
-      .eq("template_id", id)
-      .order("sort_order");
+    const [{ data: template }, { data: templateItems }, { data: categoriesData }] = await Promise.all([
+      supabase.from("templates").select("id, name, category, current_version").eq("id", id).single(),
+      supabase
+        .from("template_items")
+        .select("id, question, answer_type, category_id, weight, failure_workflow, sort_order, options")
+        .eq("template_id", id)
+        .order("sort_order"),
+      supabase.from("issue_categories").select("id, label").order("sort_order"),
+    ]);
 
     if (template) {
       setName(template.name);
@@ -61,12 +60,13 @@ export default function TemplateDetailPage() {
         id: it.id,
         question: it.question,
         answer_type: it.answer_type,
-        category_tag: it.category_tag || "",
+        category_id: it.category_id || "",
         weight: it.weight,
         failure_workflow: it.failure_workflow,
         options: it.options || [],
       }))
     );
+    setIssueCategories(categoriesData || []);
     setRemovedIds([]);
     setLoading(false);
   }
@@ -147,7 +147,7 @@ export default function TemplateDetailPage() {
         template_id: id,
         question: it.question.trim(),
         answer_type: it.answer_type,
-        category_tag: it.category_tag.trim() || null,
+        category_id: it.category_id || null,
         weight: Number(it.weight) || 1,
         failure_workflow: it.failure_workflow,
         sort_order: idx,
@@ -171,7 +171,7 @@ export default function TemplateDetailPage() {
         template_id: id,
         question: it.question.trim(),
         answer_type: it.answer_type,
-        category_tag: it.category_tag.trim() || null,
+        category_id: it.category_id || null,
         weight: Number(it.weight) || 1,
         failure_workflow: it.failure_workflow,
         sort_order: existingRows.length + idx,
@@ -286,13 +286,17 @@ export default function TemplateDetailPage() {
                 </select>
               </div>
               <div>
-                <label className="text-xs text-slate-400">Category tag</label>
-                <input
-                  value={it.category_tag}
-                  onChange={(e) => updateItem(it.key, "category_tag", e.target.value)}
-                  placeholder="e.g. PPE, Fire safety"
+                <label className="text-xs text-slate-400">Category</label>
+                <select
+                  value={it.category_id}
+                  onChange={(e) => updateItem(it.key, "category_id", e.target.value)}
                   className="w-full mt-1 border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
-                />
+                >
+                  <option value="">No category</option>
+                  {issueCategories.map((c) => (
+                    <option key={c.id} value={c.id}>{c.label}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="text-xs text-slate-400">
