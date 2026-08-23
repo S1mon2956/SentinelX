@@ -31,7 +31,7 @@ export default function SiteReviewersPage() {
       supabase.from("sites").select("name").eq("id", siteId).single(),
       supabase
         .from("site_memberships")
-        .select("id, users(full_name, email)")
+        .select("id, users!user_id(full_name, email)")
         .eq("site_id", siteId)
         .eq("role", "external_reviewer")
         .eq("status", "approved"),
