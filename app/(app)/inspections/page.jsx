@@ -72,12 +72,12 @@ export default function InspectionsListPage() {
   async function toggleArchive(e, inspection) {
     e.preventDefault();
     e.stopPropagation();
-    const { error } = await supabase
-      .from("inspections")
-      .update({ archived_at: inspection.archived_at ? null : new Date().toISOString() })
-      .eq("id", inspection.id);
+    const { error } = await supabase.rpc("toggle_inspection_archive", { p_inspection_id: inspection.id });
     if (error) return alert(error.message);
-    setInspections((prev) => prev.filter((i) => i.id !== inspection.id));
+    // The RPC silently no-ops for unauthorized callers rather than erroring,
+    // so there's no optimistic update here — reload to reflect what the DB
+    // actually did.
+    load();
   }
 
   function canDiscard(inspection) {
