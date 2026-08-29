@@ -16,7 +16,10 @@ export default function IsoOrganizationsPage() {
 
   async function load() {
     setLoading(true);
-    const { data } = await supabase.from("iso_organizations").select("*").order("name");
+    const { data } = await supabase
+      .from("iso_organizations")
+      .select("*, iso_organization_standards(standard:iso_standards(code, name))")
+      .order("name");
     setOrganizations(data || []);
     setLoading(false);
   }
@@ -52,16 +55,29 @@ export default function IsoOrganizationsPage() {
         <>
           <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
             {organizations.length === 0 && <p className="text-sm text-slate-400">No ISO clients yet.</p>}
-            {organizations.map((o) => (
-              <Link
-                key={o.id}
-                href={`/admin/iso/organizations/${o.id}`}
-                className="flex items-center justify-between text-sm border-b border-slate-100 last:border-0 pb-2 last:pb-0 hover:bg-slate-50 -mx-2 px-2 rounded"
-              >
-                <span className="text-slate-800 font-medium">{o.name}</span>
-                <span className="text-xs text-slate-400 uppercase">ISO {o.standard}</span>
-              </Link>
-            ))}
+            {organizations.map((o) => {
+              const standards = (o.iso_organization_standards || []).map((s) => s.standard).filter(Boolean);
+              return (
+                <Link
+                  key={o.id}
+                  href={`/admin/iso/organizations/${o.id}`}
+                  className="flex items-center justify-between gap-3 text-sm border-b border-slate-100 last:border-0 pb-2 last:pb-0 hover:bg-slate-50 -mx-2 px-2 rounded"
+                >
+                  <span className="text-slate-800 font-medium">{o.name}</span>
+                  <span className="flex flex-wrap gap-1 justify-end">
+                    {standards.length === 0 && <span className="text-xs text-slate-400">Not enrolled</span>}
+                    {standards.map((s) => (
+                      <span
+                        key={s.code}
+                        className="text-xs font-medium text-indigo-700 bg-indigo-50 rounded-full px-2 py-0.5 uppercase"
+                      >
+                        ISO {s.code}
+                      </span>
+                    ))}
+                  </span>
+                </Link>
+              );
+            })}
           </div>
 
           <form onSubmit={addOrganization} className="flex gap-2">
