@@ -1,14 +1,40 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { HelpCircle } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthContext";
+import IsoTutorialOverlay from "@/components/IsoTutorialOverlay";
+
+const TUTORIAL_SLIDES = [
+  {
+    title: "Welcome to ISO Excellence",
+    paragraphs: [
+      "This is your list of clients — every company you're building or maintaining an ISO management system for.",
+      "Each row shows which standards a client is enrolled in (or \"Not enrolled\" if they haven't started yet).",
+    ],
+  },
+  {
+    title: "Adding a client",
+    paragraphs: [
+      "Type a name below and hit \"Add client\" to create one. It starts unenrolled — you pick which standard(s) to enroll it in from its own page.",
+      "Click any client in the list to open their document register, audits, actions, risks, contractors, and equipment.",
+    ],
+  },
+  {
+    title: "The template library",
+    paragraphs: [
+      "\"Manage template library\" (top right) is where you build reusable policy/procedure wording, shared across every client — start there before adding clients if you're setting this up from scratch.",
+    ],
+  },
+];
 
 export default function IsoOrganizationsPage() {
   const { isSuperAdmin } = useAuth();
   const [organizations, setOrganizations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
+  const [tutorialOpen, setTutorialOpen] = useState(false);
 
   useEffect(() => {
     if (isSuperAdmin) load();
@@ -41,13 +67,24 @@ export default function IsoOrganizationsPage() {
     <main className="p-6 max-w-3xl mx-auto space-y-6">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-slate-800 mb-1">ISO Excellence</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-semibold text-slate-800 mb-1">ISO Excellence</h1>
+            <button
+              onClick={() => setTutorialOpen(true)}
+              aria-label="Show tutorial"
+              className="text-slate-400 hover:text-slate-600 mb-1"
+            >
+              <HelpCircle size={18} />
+            </button>
+          </div>
           <p className="text-sm text-slate-500">Clients you're building or maintaining an ISO management system for.</p>
         </div>
         <Link href="/admin/iso/templates" className="text-sm text-indigo-600 underline shrink-0">
           Manage template library
         </Link>
       </div>
+
+      <IsoTutorialOverlay open={tutorialOpen} onClose={() => setTutorialOpen(false)} slides={TUTORIAL_SLIDES} />
 
       {loading && <p className="text-sm text-slate-500">Loading...</p>}
 

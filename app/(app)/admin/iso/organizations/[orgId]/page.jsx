@@ -1,11 +1,37 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { HelpCircle } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthContext";
 import IsoClientTabs from "@/components/IsoClientTabs";
+import IsoTutorialOverlay from "@/components/IsoTutorialOverlay";
 
 const STATUSES = ["draft", "in_review", "approved", "superseded"];
+
+const TUTORIAL_SLIDES = [
+  {
+    title: "A client's document register",
+    paragraphs: [
+      "This is one client's home base — the tabs above (Documents, Audits, Actions, Risks, Contractors, Equipment) cover everything for this client specifically.",
+      "This tab holds their version-controlled documents: policies, procedures, forms, and records.",
+    ],
+  },
+  {
+    title: "Standards & clause scope",
+    paragraphs: [
+      "Enroll this client in a standard here — every clause starts switched on by default, so toggle off any that don't apply to them.",
+      "Only active (green) clauses show up as taggable options elsewhere on this client's pages, like documents and equipment.",
+    ],
+  },
+  {
+    title: "Adding & editing documents",
+    paragraphs: [
+      "Start from a template (brings its clause tags with it) or add a blank one. Hit \"Edit\" to write content and save new versions — nothing overwrites, every save adds a new version number.",
+      "Use the clause chips inside the editor to tag which of this client's active clauses a document satisfies.",
+    ],
+  },
+];
 
 export default function IsoDocumentRegisterPage() {
   const { orgId } = useParams();
@@ -25,6 +51,7 @@ export default function IsoDocumentRegisterPage() {
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [blankTitle, setBlankTitle] = useState("");
   const [enrollStandardId, setEnrollStandardId] = useState("");
+  const [tutorialOpen, setTutorialOpen] = useState(false);
 
   useEffect(() => {
     if (isSuperAdmin) load();
@@ -244,9 +271,20 @@ export default function IsoDocumentRegisterPage() {
   return (
     <main className="p-6 max-w-4xl mx-auto space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-slate-800 mb-1">{orgName || "..."} — document register</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-semibold text-slate-800 mb-1">{orgName || "..."} — document register</h1>
+          <button
+            onClick={() => setTutorialOpen(true)}
+            aria-label="Show tutorial"
+            className="text-slate-400 hover:text-slate-600 mb-1"
+          >
+            <HelpCircle size={18} />
+          </button>
+        </div>
         <p className="text-sm text-slate-500">Documents for this client, version-controlled, tagged against the standards and clauses they're enrolled in.</p>
       </div>
+
+      <IsoTutorialOverlay open={tutorialOpen} onClose={() => setTutorialOpen(false)} slides={TUTORIAL_SLIDES} />
 
       <IsoClientTabs orgId={orgId} />
 

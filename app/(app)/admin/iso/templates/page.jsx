@@ -1,10 +1,28 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Trash2, HelpCircle } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthContext";
+import IsoTutorialOverlay from "@/components/IsoTutorialOverlay";
 
 const DOC_TYPES = ["policy", "procedure", "form", "record"];
+
+const TUTORIAL_SLIDES = [
+  {
+    title: "The template library",
+    paragraphs: [
+      "Templates are your reusable policy/procedure wording — write it once here, then reuse it across every client instead of retyping the same document each time.",
+      "Each template has a title, a type (policy/procedure/form/record), and content.",
+    ],
+  },
+  {
+    title: "Tagging clauses",
+    paragraphs: [
+      "Pick a standard from the dropdown to browse its clauses, then tick the ones this template satisfies — a template can cover clauses from more than one standard.",
+      "When a client creates a document from this template, its clause tags come along automatically (and can be edited afterwards on that client's own document).",
+    ],
+  },
+];
 
 export default function IsoTemplatesPage() {
   const { isSuperAdmin } = useAuth();
@@ -16,6 +34,7 @@ export default function IsoTemplatesPage() {
   const [newTemplate, setNewTemplate] = useState({ title: "", document_type: "policy", template_content: "" });
   const [pickerStandardId, setPickerStandardId] = useState("");
   const [selectedClauseIds, setSelectedClauseIds] = useState([]);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
 
   useEffect(() => {
     if (isSuperAdmin) load();
@@ -85,9 +104,20 @@ export default function IsoTemplatesPage() {
   return (
     <main className="p-6 max-w-4xl mx-auto space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-slate-800 mb-1">ISO Excellence — document template library</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-semibold text-slate-800 mb-1">ISO Excellence — document template library</h1>
+          <button
+            onClick={() => setTutorialOpen(true)}
+            aria-label="Show tutorial"
+            className="text-slate-400 hover:text-slate-600 mb-1"
+          >
+            <HelpCircle size={18} />
+          </button>
+        </div>
         <p className="text-sm text-slate-500">Your reusable policy/procedure wording, tagged to clauses across one or more standards. Reused across every client.</p>
       </div>
+
+      <IsoTutorialOverlay open={tutorialOpen} onClose={() => setTutorialOpen(false)} slides={TUTORIAL_SLIDES} />
 
       {loading && <p className="text-sm text-slate-500">Loading...</p>}
 
