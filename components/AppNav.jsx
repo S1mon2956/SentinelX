@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ExternalLink, LogOut, Menu, X } from "lucide-react";
+import { LogOut, Menu, X } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
 import SiteSwitcher from "@/components/SiteSwitcher";
 import NotificationBell from "@/components/NotificationBell";
@@ -80,7 +80,6 @@ export default function AppNav() {
                 className="inline-flex items-center gap-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-600 hover:text-indigo-700 w-fit"
               >
                 {inIsoSection ? "SentinelX" : "ISO Excellence"}
-                {!inIsoSection && <ExternalLink size={9} />}
               </Link>
             )}
           </div>
@@ -180,7 +179,6 @@ export default function AppNav() {
                 className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-indigo-600"
               >
                 {inIsoSection ? "SentinelX" : "ISO Excellence"}
-                {!inIsoSection && <ExternalLink size={11} />}
               </Link>
             </div>
           )}
