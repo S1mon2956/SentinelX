@@ -8,6 +8,7 @@ const TABS = [
   { key: "actions", label: "Actions", href: (orgId) => `/admin/iso/organizations/${orgId}/actions` },
   { key: "risks", label: "Risks", href: (orgId) => `/admin/iso/organizations/${orgId}/risks` },
   { key: "contractors", label: "Contractors", href: (orgId) => `/admin/iso/organizations/${orgId}/contractors` },
+  { key: "equipment", label: "Equipment", href: (orgId) => `/admin/iso/organizations/${orgId}/equipment` },
 ];
 
 export default function IsoClientTabs({ orgId }) {
