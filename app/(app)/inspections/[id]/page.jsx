@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Camera, CheckCircle2, ClipboardCheck, MapPin, WifiOff, RefreshCw, AlertTriangle } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, Camera, CheckCircle2, ClipboardCheck, MapPin, WifiOff, RefreshCw, AlertTriangle } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthContext";
 import { optionColor, NA_OPTION } from "@/lib/templateConstants";
@@ -566,6 +567,13 @@ export default function RunInspectionPage() {
           <RefreshCw size={14} className="animate-spin" /> {syncBanner}
         </div>
       )}
+
+      <Link
+        href="/inspections"
+        className="inline-flex items-center gap-1 text-sm font-medium text-slate-500 hover:text-slate-800 mb-3"
+      >
+        <ArrowLeft size={15} /> Back to inspections
+      </Link>
 
       <div className="flex items-center justify-between mb-1">
         <h1 className="text-xl font-semibold text-slate-800">{inspection.templates?.name}</h1>
