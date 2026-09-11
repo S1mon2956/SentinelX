@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Plus, Trash2, GripVertical } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import { useAuth } from "@/lib/AuthContext";
 import { ANSWER_TYPES, FAILURE_WORKFLOWS, OPTION_COLORS } from "@/lib/templateConstants";
 
 function blankItem() {
@@ -22,6 +23,9 @@ function blankItem() {
 export default function TemplateDetailPage() {
   const { id } = useParams();
   const router = useRouter();
+  const { isSuperAdmin, memberships } = useAuth();
+  const canManageTemplates =
+    isSuperAdmin || memberships.some((m) => m.role === "site_manager" || m.role === "company_manager");
 
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
@@ -220,6 +224,14 @@ export default function TemplateDetailPage() {
 
   if (loading) {
     return <main className="p-6 max-w-2xl mx-auto text-sm text-slate-500">Loading...</main>;
+  }
+
+  if (!canManageTemplates) {
+    return (
+      <main className="p-6 max-w-2xl mx-auto text-sm text-slate-500">
+        You don't have permission to edit templates — this is limited to site managers, company managers, and super admins.
+      </main>
+    );
   }
 
   return (

@@ -21,7 +21,9 @@ function blankItem() {
 
 export default function NewTemplatePage() {
   const router = useRouter();
-  const { profile, activeSiteId, activeMembership } = useAuth();
+  const { profile, activeSiteId, activeMembership, isSuperAdmin, memberships } = useAuth();
+  const canManageTemplates =
+    isSuperAdmin || memberships.some((m) => m.role === "site_manager" || m.role === "company_manager");
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
   const [items, setItems] = useState([blankItem()]);
@@ -163,6 +165,14 @@ export default function NewTemplatePage() {
 
     setSaving(false);
     router.push("/inspections");
+  }
+
+  if (!canManageTemplates) {
+    return (
+      <main className="p-6 max-w-2xl mx-auto text-sm text-slate-500">
+        You don't have permission to create templates — this is limited to site managers, company managers, and super admins.
+      </main>
+    );
   }
 
   return (
