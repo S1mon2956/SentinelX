@@ -1,12 +1,14 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthContext";
 import IsoClientTabs from "@/components/IsoClientTabs";
 
 const LEVELS = [1, 2, 3, 4, 5];
 const STATUSES = ["open", "mitigated", "closed"];
+const HAZARD_CATEGORY = "Hazard";
 
 function scoreColor(score) {
   if (score >= 15) return "bg-rose-100 text-rose-700";
@@ -16,16 +18,39 @@ function scoreColor(score) {
 
 export default function IsoRisksPage() {
   const { orgId } = useParams();
+  const searchParams = useSearchParams();
   const { isSuperAdmin } = useAuth();
+
+  // Hazards aren't a separate table — they're risks with category
+  // "Hazard", surfaced here via ?category=Hazard from the Hazards tab so
+  // the existing risk register (table, scoring, form) is reused as-is.
+  const hazardsOnly = searchParams.get("category") === HAZARD_CATEGORY;
 
   const [orgName, setOrgName] = useState("");
   const [risks, setRisks] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ title: "", description: "", category: "", likelihood: 1, impact: 1, owner: "", review_date: "" });
+  const [form, setForm] = useState({
+    title: "",
+    description: "",
+    category: hazardsOnly ? HAZARD_CATEGORY : "",
+    likelihood: 1,
+    impact: 1,
+    owner: "",
+    review_date: "",
+  });
 
   useEffect(() => {
     if (isSuperAdmin) load();
   }, [isSuperAdmin, orgId]);
+
+  // Keeps the add-form's category in sync when navigating between the
+  // Risks and Hazards tabs client-side (a plain useState default would go
+  // stale, since this is the same route/component, not a remount).
+  useEffect(() => {
+    setForm((p) => ({ ...p, category: hazardsOnly ? HAZARD_CATEGORY : "" }));
+  }, [hazardsOnly]);
+
+  const filteredRisks = hazardsOnly ? risks.filter((r) => r.category === HAZARD_CATEGORY) : risks;
 
   async function load() {
     setLoading(true);
@@ -45,14 +70,22 @@ export default function IsoRisksPage() {
       iso_organization_id: orgId,
       title: form.title.trim(),
       description: form.description.trim() || null,
-      category: form.category.trim() || null,
+      category: hazardsOnly ? HAZARD_CATEGORY : form.category.trim() || null,
       likelihood: Number(form.likelihood),
       impact: Number(form.impact),
       owner: form.owner.trim() || null,
       review_date: form.review_date || null,
     });
     if (error) return alert(error.message);
-    setForm({ title: "", description: "", category: "", likelihood: 1, impact: 1, owner: "", review_date: "" });
+    setForm({
+      title: "",
+      description: "",
+      category: hazardsOnly ? HAZARD_CATEGORY : "",
+      likelihood: 1,
+      impact: 1,
+      owner: "",
+      review_date: "",
+    });
     load();
   }
 
@@ -68,9 +101,23 @@ export default function IsoRisksPage() {
 
   return (
     <main className="p-6 max-w-4xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-800 mb-1">{orgName || "..."} — risk register</h1>
-        <p className="text-sm text-slate-500">Identified risks for this client, sorted highest score first.</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-800 mb-1">
+            {orgName || "..."} — {hazardsOnly ? "hazards" : "risk register"}
+          </h1>
+          <p className="text-sm text-slate-500">
+            {hazardsOnly
+              ? "Risks in this client's register categorized as a Hazard, sorted highest score first."
+              : "Identified risks for this client, sorted highest score first."}
+          </p>
+        </div>
+        <Link
+          href={hazardsOnly ? `/admin/iso/organizations/${orgId}/risks` : `/admin/iso/organizations/${orgId}/risks?category=Hazard`}
+          className="text-sm text-indigo-600 underline shrink-0"
+        >
+          {hazardsOnly ? "View all risks" : "View hazards only"}
+        </Link>
       </div>
 
       <IsoClientTabs orgId={orgId} />
@@ -91,12 +138,14 @@ export default function IsoRisksPage() {
                 </tr>
               </thead>
               <tbody>
-                {risks.length === 0 && (
+                {filteredRisks.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-4 text-center text-slate-400">No risks logged yet.</td>
+                    <td colSpan={5} className="px-4 py-4 text-center text-slate-400">
+                      {hazardsOnly ? "No hazards logged yet." : "No risks logged yet."}
+                    </td>
                   </tr>
                 )}
-                {risks.map((r) => (
+                {filteredRisks.map((r) => (
                   <tr key={r.id} className="border-t border-slate-100">
                     <td className="px-4 py-3">
                       <p className="font-medium text-slate-800">{r.title}</p>
@@ -127,7 +176,7 @@ export default function IsoRisksPage() {
           </div>
 
           <form onSubmit={addRisk} className="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
-            <h2 className="text-sm font-semibold text-slate-700">Add a risk</h2>
+            <h2 className="text-sm font-semibold text-slate-700">{hazardsOnly ? "Add a hazard" : "Add a risk"}</h2>
             <input
               placeholder="Title"
               value={form.title}
@@ -141,13 +190,15 @@ export default function IsoRisksPage() {
               rows={2}
               className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
             />
-            <div className="grid grid-cols-4 gap-2">
-              <input
-                placeholder="Category"
-                value={form.category}
-                onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}
-                className="border border-slate-300 rounded-lg px-2 py-2 text-sm"
-              />
+            <div className={`grid gap-2 ${hazardsOnly ? "grid-cols-3" : "grid-cols-4"}`}>
+              {!hazardsOnly && (
+                <input
+                  placeholder="Category"
+                  value={form.category}
+                  onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}
+                  className="border border-slate-300 rounded-lg px-2 py-2 text-sm"
+                />
+              )}
               <select
                 value={form.likelihood}
                 onChange={(e) => setForm((p) => ({ ...p, likelihood: e.target.value }))}
@@ -180,7 +231,7 @@ export default function IsoRisksPage() {
               className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
             />
             <button type="submit" className="bg-slate-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-slate-800">
-              Add risk
+              {hazardsOnly ? "Add hazard" : "Add risk"}
             </button>
           </form>
         </>
