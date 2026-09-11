@@ -8,6 +8,7 @@ import IsoClientTabs from "@/components/IsoClientTabs";
 import IsoTutorialOverlay from "@/components/IsoTutorialOverlay";
 
 const STATUSES = ["draft", "in_review", "approved", "superseded"];
+const SECTION_OPTIONS = ["documents", "audits", "actions", "risks", "contractors", "equipment", "meetings", "reports"];
 
 const TUTORIAL_SLIDES = [
   {
@@ -52,6 +53,12 @@ export default function IsoDocumentRegisterPage() {
   const [blankTitle, setBlankTitle] = useState("");
   const [enrollStandardId, setEnrollStandardId] = useState("");
   const [tutorialOpen, setTutorialOpen] = useState(false);
+
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("member");
+  const [inviteScopes, setInviteScopes] = useState([]);
+  const [inviteSubmitting, setInviteSubmitting] = useState(false);
+  const [inviteResult, setInviteResult] = useState(null); // { type: "success" | "error", message }
 
   useEffect(() => {
     if (isSuperAdmin) load();
@@ -119,6 +126,53 @@ export default function IsoDocumentRegisterPage() {
     setTemplates(templateData || []);
     setDocuments(docsWithVersions);
     setLoading(false);
+  }
+
+  // ── Invite member ─────────────────────────────────────────────────────
+
+  function toggleInviteScope(section) {
+    setInviteScopes((prev) => (prev.includes(section) ? prev.filter((s) => s !== section) : [...prev, section]));
+  }
+
+  async function handleInvite(e) {
+    e.preventDefault();
+    setInviteResult(null);
+    if (!inviteEmail.trim()) return;
+    if (inviteRole === "restricted" && inviteScopes.length === 0) {
+      setInviteResult({ type: "error", message: "Select at least one section for a restricted member." });
+      return;
+    }
+
+    setInviteSubmitting(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) throw new Error("Your session has expired — please sign in again.");
+
+      const res = await fetch("/api/admin/iso/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          email: inviteEmail.trim(),
+          iso_organization_id: orgId,
+          role: inviteRole,
+          scopes: inviteRole === "restricted" ? inviteScopes : [],
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setInviteResult({ type: "error", message: json.error || "Invite failed." });
+        return;
+      }
+      setInviteResult({ type: "success", message: `${inviteEmail.trim()} now has ${inviteRole} access to this client.` });
+      setInviteEmail("");
+      setInviteRole("member");
+      setInviteScopes([]);
+    } catch (err) {
+      setInviteResult({ type: "error", message: err.message });
+    } finally {
+      setInviteSubmitting(false);
+    }
   }
 
   // ── Standard enrollment ────────────────────────────────────────────────
@@ -292,6 +346,76 @@ export default function IsoDocumentRegisterPage() {
 
       {!loading && (
         <>
+          {/* ── Invite member ───────────────────────────────────────────── */}
+          <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+            <h2 className="text-sm font-semibold text-slate-700">Invite member</h2>
+            <p className="text-xs text-slate-500">
+              Give someone client-facing access to this organization. Members see everything; restricted members only
+              see the sections you grant below.
+            </p>
+
+            {inviteResult && (
+              <p
+                className={`text-sm rounded-lg px-3 py-2 border ${
+                  inviteResult.type === "success"
+                    ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+                    : "text-rose-600 bg-rose-50 border-rose-200"
+                }`}
+              >
+                {inviteResult.message}
+              </p>
+            )}
+
+            <form onSubmit={handleInvite} className="space-y-3">
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  required
+                  placeholder="email@example.com"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                />
+                <select
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value)}
+                  className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                >
+                  <option value="member">Member (full access)</option>
+                  <option value="restricted">Restricted (chosen sections)</option>
+                </select>
+              </div>
+
+              {inviteRole === "restricted" && (
+                <div className="flex flex-wrap gap-1.5">
+                  {SECTION_OPTIONS.map((section) => {
+                    const active = inviteScopes.includes(section);
+                    return (
+                      <button
+                        key={section}
+                        type="button"
+                        onClick={() => toggleInviteScope(section)}
+                        className={`text-xs font-medium rounded-full px-2.5 py-1 capitalize ${
+                          active ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-400"
+                        }`}
+                      >
+                        {section}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={inviteSubmitting}
+                className="bg-slate-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-slate-800 disabled:opacity-50"
+              >
+                {inviteSubmitting ? "Inviting..." : "Invite member"}
+              </button>
+            </form>
+          </div>
+
           {/* ── Standards & clause scope ──────────────────────────────── */}
           <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-4">
             <h2 className="text-sm font-semibold text-slate-700">Standards & clause scope</h2>

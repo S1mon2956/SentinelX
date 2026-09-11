@@ -19,6 +19,8 @@ export function AuthProvider({ children }) {
   const [memberships, setMemberships] = useState([]); // approved site_memberships, joined with site name
   const [activeSiteId, setActiveSiteId] = useState(null); // the site currently selected in the SiteSwitcher
   const [membershipError, setMembershipError] = useState(""); // surfaced instead of silently showing zero sites
+  const [isoMemberships, setIsoMemberships] = useState([]); // approved iso_organization_memberships, joined with org name
+  const [hasAnySiteMembershipRecord, setHasAnySiteMembershipRecord] = useState(false); // any APPROVED site_memberships row — mirrors how hasIsoAccess is scoped to approved iso memberships
 
   useEffect(() => {
     let active = true;
@@ -37,6 +39,8 @@ export function AuthProvider({ children }) {
       // every non-archived site instead of just what they've been approved for.
       let mapped;
       let membershipErr = null;
+      let isoMembershipRows = [];
+      let anySiteMembership = false;
       if (profileData?.is_super_admin) {
         const { data: siteData, error: siteErr } = await supabase
           .from("sites")
@@ -52,16 +56,30 @@ export function AuthProvider({ children }) {
           site_name: s.name || "Unnamed site",
         }));
       } else {
-        const { data: membershipData, error: mErr } = await supabase
-          .from("site_memberships")
-          .select("id, role, status, site_id, company_id, sites(name)")
-          .eq("user_id", userId)
-          .eq("status", "approved");
+        const [{ data: membershipData, error: mErr }, { data: isoData }, { count: siteCount }] = await Promise.all([
+          supabase
+            .from("site_memberships")
+            .select("id, role, status, site_id, company_id, sites(name)")
+            .eq("user_id", userId)
+            .eq("status", "approved"),
+          supabase
+            .from("iso_organization_memberships")
+            .select("id, role, status, iso_organization_id, iso_organizations(name)")
+            .eq("user_id", userId)
+            .eq("status", "approved"),
+          supabase
+            .from("site_memberships")
+            .select("id", { count: "exact", head: true })
+            .eq("user_id", userId)
+            .eq("status", "approved"),
+        ]);
         membershipErr = mErr;
         mapped = (membershipData || []).map((m) => ({
           ...m,
           site_name: m.sites?.name || "Unnamed site",
         }));
+        isoMembershipRows = isoData || [];
+        anySiteMembership = (siteCount || 0) > 0;
       }
       if (!active) return;
       if (membershipErr) {
@@ -71,6 +89,8 @@ export function AuthProvider({ children }) {
         setMembershipError("");
       }
       setMemberships(mapped);
+      setIsoMemberships(isoMembershipRows);
+      setHasAnySiteMembershipRecord(profileData?.is_super_admin ? true : anySiteMembership);
       setActiveSiteId((current) => current ?? mapped[0]?.site_id ?? null);
     }
 
@@ -96,6 +116,8 @@ export function AuthProvider({ children }) {
       if (!newSession) {
         setProfile(null);
         setMemberships([]);
+        setIsoMemberships([]);
+        setHasAnySiteMembershipRecord(false);
         setActiveSiteId(null);
       } else {
         loadProfileAndMemberships(newSession.user.id);
@@ -129,6 +151,12 @@ export function AuthProvider({ children }) {
   const isManagerSomewhere = memberships.some(
     (m) => m.role === "site_manager" || m.role === "company_manager"
   );
+  // Used by AppNav to decide whether the ISO Excellence / SentinelX
+  // workspace-switcher badge should be offered at all, independent of
+  // is_super_admin — a client-facing ISO member with zero site_memberships
+  // rows should never be shown a "SentinelX" option that leads nowhere.
+  const hasIsoAccess = isSuperAdmin || isoMemberships.length > 0;
+  const hasSentinelAccess = isSuperAdmin || hasAnySiteMembershipRecord;
   // Someone with real work to do: a super admin, or a manager on at least one site.
   const canApproveUsers = isSuperAdmin || isManagerSomewhere;
   function canManageSite(siteId) {
@@ -158,6 +186,9 @@ export function AuthProvider({ children }) {
         setActiveSiteId,
         activeMembership,
         membershipError,
+        isoMemberships,
+        hasIsoAccess,
+        hasSentinelAccess,
         signOut,
       }}
     >

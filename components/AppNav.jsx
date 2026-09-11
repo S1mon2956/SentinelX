@@ -14,7 +14,19 @@ const ISO_EXCELLENCE_HREF = "/admin/iso";
 
 export default function AppNav() {
   const pathname = usePathname();
-  const { profile, memberships, canApproveUsers, canManageSite, isSuperAdmin, activeSiteId, setActiveSiteId, membershipError, signOut } = useAuth();
+  const {
+    profile,
+    memberships,
+    canApproveUsers,
+    canManageSite,
+    isSuperAdmin,
+    activeSiteId,
+    setActiveSiteId,
+    membershipError,
+    hasIsoAccess,
+    hasSentinelAccess,
+    signOut,
+  } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Workspace switcher: the primary logo label reflects whichever product
@@ -54,6 +66,14 @@ export default function AppNav() {
 
   const links = inIsoSection ? isoLinks : sentinelLinks;
 
+  // Switcher badge visibility: the badge points at the OTHER workspace, so
+  // it should only be offered if the user actually has access there — not
+  // just because they're a super admin. A client-facing ISO member with no
+  // site_memberships row at all sees no SentinelX option; a SentinelX user
+  // with no approved iso_organization_memberships row sees no ISO Excellence
+  // option.
+  const showSwitcherBadge = inIsoSection ? hasSentinelAccess : hasIsoAccess;
+
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
       <div className="px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
@@ -74,7 +94,7 @@ export default function AppNav() {
             <Link href={inIsoSection ? ISO_EXCELLENCE_HREF : "/dashboard"} className="text-lg font-semibold text-slate-800">
               {inIsoSection ? "ISO Excellence" : "SentinelX"}
             </Link>
-            {isSuperAdmin && (
+            {showSwitcherBadge && (
               <Link
                 href={inIsoSection ? "/dashboard" : ISO_EXCELLENCE_HREF}
                 className="inline-flex items-center gap-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-600 hover:text-indigo-700 w-fit"
@@ -171,7 +191,7 @@ export default function AppNav() {
             ))}
           </nav>
 
-          {isSuperAdmin && (
+          {showSwitcherBadge && (
             <div className="px-4 pb-2">
               <Link
                 href={inIsoSection ? "/dashboard" : ISO_EXCELLENCE_HREF}

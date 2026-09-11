@@ -1,0 +1,4 @@
+Placeholder — client-facing ISO Excellence pages go here (separate from
+app/(app)/admin/iso/*, which is the internal management view). No pages
+built yet as of phase37/phase A step 1 (client membership + invite
+plumbing only). Remove this file once the first real page lands here.
