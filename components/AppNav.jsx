@@ -8,9 +8,11 @@ import { useAuth } from "@/lib/AuthContext";
 import SiteSwitcher from "@/components/SiteSwitcher";
 import NotificationBell from "@/components/NotificationBell";
 
-// ISO Excellence is a separate product, not an internal page — once it has
-// its own platform, this is the only line that needs to change.
-const ISO_EXCELLENCE_HREF = "/admin/iso";
+// ISO Excellence is a separate product, not an internal page. Super admins
+// manage it from the admin console; client-facing members/restricted users
+// get their own home under /iso — same product, two different front doors.
+const ISO_ADMIN_HREF = "/admin/iso";
+const ISO_CLIENT_HREF = "/iso";
 
 export default function AppNav() {
   const pathname = usePathname();
@@ -31,7 +33,8 @@ export default function AppNav() {
 
   // Workspace switcher: the primary logo label reflects whichever product
   // section you're currently in, with a small link back to the other.
-  const inIsoSection = pathname.startsWith(ISO_EXCELLENCE_HREF);
+  const inIsoSection = pathname.startsWith(ISO_ADMIN_HREF) || pathname.startsWith(ISO_CLIENT_HREF);
+  const isoHomeHref = isSuperAdmin ? ISO_ADMIN_HREF : ISO_CLIENT_HREF;
 
   // Deliberately narrower than canManageSite: only a full site manager or a
   // super admin can manage external reviewers, matching the phase26 INSERT
@@ -57,12 +60,15 @@ export default function AppNav() {
 
   // ISO Excellence is its own product with its own nav — only the pages
   // that actually exist today, not a placeholder for the fuller feature set
-  // it'll eventually grow into.
-  const isoLinks = [
-    { href: ISO_EXCELLENCE_HREF, label: "Clients" },
-    { href: `${ISO_EXCELLENCE_HREF}/templates`, label: "Template Library" },
-    { href: `${ISO_EXCELLENCE_HREF}/checklists`, label: "Checklist Library" },
-  ];
+  // it'll eventually grow into. Admins get the management console links;
+  // client-facing users get a single link back to their own org home.
+  const isoLinks = isSuperAdmin
+    ? [
+        { href: ISO_ADMIN_HREF, label: "Clients" },
+        { href: `${ISO_ADMIN_HREF}/templates`, label: "Template Library" },
+        { href: `${ISO_ADMIN_HREF}/checklists`, label: "Checklist Library" },
+      ]
+    : [{ href: ISO_CLIENT_HREF, label: "ISO Excellence" }];
 
   const links = inIsoSection ? isoLinks : sentinelLinks;
 
@@ -91,12 +97,12 @@ export default function AppNav() {
           </button>
 
           <div className="flex flex-col shrink-0 leading-tight">
-            <Link href={inIsoSection ? ISO_EXCELLENCE_HREF : "/dashboard"} className="text-lg font-semibold text-slate-800">
+            <Link href={inIsoSection ? isoHomeHref : "/dashboard"} className="text-lg font-semibold text-slate-800">
               {inIsoSection ? "ISO Excellence" : "SentinelX"}
             </Link>
             {showSwitcherBadge && (
               <Link
-                href={inIsoSection ? "/dashboard" : ISO_EXCELLENCE_HREF}
+                href={inIsoSection ? "/dashboard" : isoHomeHref}
                 className="inline-flex items-center gap-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-600 hover:text-indigo-700 w-fit"
               >
                 {inIsoSection ? "SentinelX" : "ISO Excellence"}
@@ -194,7 +200,7 @@ export default function AppNav() {
           {showSwitcherBadge && (
             <div className="px-4 pb-2">
               <Link
-                href={inIsoSection ? "/dashboard" : ISO_EXCELLENCE_HREF}
+                href={inIsoSection ? "/dashboard" : isoHomeHref}
                 onClick={() => setMenuOpen(false)}
                 className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-indigo-600"
               >
