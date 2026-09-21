@@ -2,17 +2,19 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthContext";
 import IsoDisclaimer from "@/components/IsoDisclaimer";
 import IsoDocumentStatusBadge from "@/components/IsoDocumentStatusBadge";
+import IsoLoading from "@/components/IsoLoading";
+import IsoBackLink from "@/components/IsoBackLink";
 
 export default function IsoClauseDetailPage() {
   const { orgId, standardId, clauseId } = useParams();
   const { profile } = useAuth();
 
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [clause, setClause] = useState(null);
   const [documents, setDocuments] = useState([]);
   const [openDocId, setOpenDocId] = useState(null);
@@ -30,13 +32,20 @@ export default function IsoClauseDetailPage() {
 
   async function load() {
     setLoading(true);
-    const [{ data: clauseData }, { data: docLinks }] = await Promise.all([
+    const [{ data: clauseData, error: clauseError }, { data: docLinks, error: docsError }] = await Promise.all([
       supabase.from("iso_clauses").select("*").eq("id", clauseId).single(),
       supabase
         .from("iso_document_clauses")
         .select("iso_documents(id, title, document_type, status, source, file_path, created_at)")
         .eq("clause_id", clauseId),
     ]);
+    const loadError = clauseError || docsError;
+    if (loadError) {
+      console.error("Failed to load clause:", loadError.message);
+      setError(loadError.message);
+      setLoading(false);
+      return;
+    }
     setClause(clauseData || null);
     setDocuments((docLinks || []).map((r) => r.iso_documents).filter(Boolean));
     setLoading(false);
@@ -115,25 +124,31 @@ export default function IsoClauseDetailPage() {
       .from("iso_document_clauses")
       .insert({ iso_document_id: documentId, clause_id: clauseId });
 
-    setUploading(false);
     if (tagError) {
-      alert(`Document saved but couldn't be linked to this clause: ${tagError.message}`);
+      // Untagged, the document would be permanently invisible (every client
+      // page finds documents via this join) while still holding a DB row
+      // and a stored file — roll both back rather than leave an orphan.
+      await supabase.from("iso_documents").delete().eq("id", documentId);
+      await supabase.storage.from("iso-documents").remove([path]);
+      setUploading(false);
+      alert(`Upload couldn't be linked to this clause and was rolled back: ${tagError.message}. Please try again.`);
+      return;
     }
 
+    setUploading(false);
     setUploadTitle("");
     setUploadFile(null);
     setShowUploadForm(false);
     load();
   }
 
-  if (loading) return <main className="p-6 text-sm text-slate-500">Loading...</main>;
+  if (loading) return <IsoLoading />;
+  if (error) return <main className="p-6 text-sm text-rose-600">Couldn't load this clause: {error}</main>;
 
   return (
     <main className="p-6 max-w-2xl mx-auto space-y-6">
       <div>
-        <Link href={`/iso/${orgId}/standards/${standardId}`} className="text-xs font-medium text-indigo-600 underline">
-          &larr; Back to clauses
-        </Link>
+        <IsoBackLink href={`/iso/${orgId}/standards/${standardId}`}>Back to clauses</IsoBackLink>
         <h1 className="text-xl font-semibold text-slate-800 mt-1">
           {clause?.clause_reference} — {clause?.title}
         </h1>

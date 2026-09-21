@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/AuthContext";
+import IsoLoading from "@/components/IsoLoading";
 
 // Client-facing ISO Excellence home. Super admins manage clients from
 // /admin/iso instead — this route is only reachable by a real client
@@ -12,6 +13,7 @@ import { useAuth } from "@/lib/AuthContext";
 export default function IsoClientHomePage() {
   const router = useRouter();
   const { loading, isoMemberships, isSuperAdmin } = useAuth();
+  const redirecting = loading || isSuperAdmin || isoMemberships.length > 0;
 
   useEffect(() => {
     if (loading) return;
@@ -24,9 +26,7 @@ export default function IsoClientHomePage() {
     }
   }, [loading, isoMemberships, isSuperAdmin, router]);
 
-  if (loading || isSuperAdmin || isoMemberships.length > 0) {
-    return <main className="p-6 text-sm text-slate-500">Loading...</main>;
-  }
+  if (redirecting) return <IsoLoading />;
 
   return (
     <main className="p-6 max-w-lg mx-auto text-center space-y-2">

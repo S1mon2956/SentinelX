@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import IsoBackLink from "@/components/IsoBackLink";
 
 const RISKS_HREF = (orgId) => `/admin/iso/organizations/${orgId}/risks`;
 
@@ -34,9 +35,7 @@ export default function IsoClientTabs({ orgId }) {
   const searchParams = useSearchParams();
   return (
     <>
-      <Link href="/admin/iso" className="text-xs font-medium text-indigo-600 underline">
-        &larr; Back to Clients
-      </Link>
+      <IsoBackLink href="/admin/iso">Back to Clients</IsoBackLink>
       <nav className="flex gap-1 border-b border-slate-200 mb-4 mt-2 overflow-x-auto">
       {TABS.map((t) => {
         const href = t.href(orgId);

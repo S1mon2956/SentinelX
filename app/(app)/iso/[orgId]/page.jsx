@@ -6,28 +6,18 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthContext";
 import IsoDisclaimer from "@/components/IsoDisclaimer";
-
-// Only "documents" has a built client-facing page so far — every other
-// section is real (a restricted user really can be scoped to it) but has
-// no destination yet, so it renders as a disabled card rather than a link.
-const SECTION_LABELS = {
-  documents: "Documents",
-  audits: "Audits",
-  actions: "Actions",
-  risks: "Risks",
-  contractors: "Contractors",
-  equipment: "Equipment",
-  meetings: "Meetings",
-  reports: "Audit Reports",
-};
-const AVAILABLE_SECTIONS = new Set(["documents"]);
+import IsoLoading from "@/components/IsoLoading";
+import { ISO_SECTION_LABELS, ISO_SECTION_ROUTES } from "@/lib/isoSections";
 
 export default function IsoOrgHomePage() {
   const { orgId } = useParams();
   const router = useRouter();
   const { loading: authLoading, isoMemberships, isSuperAdmin } = useAuth();
+  // null = still resolving; redirecting away (super admin / member role)
+  // never reaches a non-null state, since the effect replaces the route
+  // before setting it.
   const [scopes, setScopes] = useState(null);
-  const [loadingScopes, setLoadingScopes] = useState(true);
+  const [scopesError, setScopesError] = useState("");
 
   const membership = isoMemberships.find((m) => m.iso_organization_id === orgId) || null;
   const orgName = membership?.iso_organizations?.name || "Your organisation";
@@ -41,14 +31,14 @@ export default function IsoOrgHomePage() {
     }
 
     if (!membership) {
-      setLoadingScopes(false);
+      setScopes([]);
       return;
     }
 
     // A member has full access to every section — the landing page for that
     // role IS the documents flow today, since that's the only section built.
     if (membership.role === "member") {
-      router.replace(`/iso/${orgId}/standards`);
+      router.replace(ISO_SECTION_ROUTES.documents(orgId));
       return;
     }
 
@@ -56,18 +46,17 @@ export default function IsoOrgHomePage() {
       .from("iso_membership_scopes")
       .select("section")
       .eq("membership_id", membership.id)
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          console.error("Failed to load granted sections:", error.message);
+          setScopesError(error.message);
+        }
         setScopes((data || []).map((s) => s.section));
-        setLoadingScopes(false);
       });
   }, [authLoading, membership, isSuperAdmin, orgId, router]);
 
-  if (authLoading || isSuperAdmin || (membership && membership.role === "member")) {
-    return <main className="p-6 text-sm text-slate-500">Loading...</main>;
-  }
-
-  if (loadingScopes) {
-    return <main className="p-6 text-sm text-slate-500">Loading...</main>;
+  if (authLoading || isSuperAdmin || (membership && membership.role === "member") || scopes === null) {
+    return <IsoLoading />;
   }
 
   if (!membership) {
@@ -87,32 +76,36 @@ export default function IsoOrgHomePage() {
         <p className="text-sm text-slate-500">Sections you've been granted access to.</p>
       </div>
 
-      <div className="grid sm:grid-cols-2 gap-3">
-        {(scopes || []).length === 0 && (
-          <p className="text-sm text-slate-400">No sections have been granted yet.</p>
-        )}
-        {(scopes || []).map((section) => {
-          const available = AVAILABLE_SECTIONS.has(section);
-          const label = SECTION_LABELS[section] || section;
-          const card = (
-            <div
-              className={`border rounded-xl p-4 ${
-                available ? "border-slate-200 bg-white hover:border-slate-300" : "border-slate-100 bg-slate-50 opacity-60"
-              }`}
-            >
-              <p className="text-sm font-semibold text-slate-800">{label}</p>
-              {!available && <p className="text-xs text-slate-400 mt-1">Coming soon</p>}
-            </div>
-          );
-          return available ? (
-            <Link key={section} href={`/iso/${orgId}/standards`}>
-              {card}
-            </Link>
-          ) : (
-            <div key={section}>{card}</div>
-          );
-        })}
-      </div>
+      {scopesError && (
+        <p className="text-sm text-rose-600">Couldn't load your granted sections: {scopesError}</p>
+      )}
+
+      {!scopesError && (
+        <div className="grid sm:grid-cols-2 gap-3">
+          {scopes.length === 0 && <p className="text-sm text-slate-400">No sections have been granted yet.</p>}
+          {scopes.map((section) => {
+            const routeFor = ISO_SECTION_ROUTES[section];
+            const label = ISO_SECTION_LABELS[section] || section;
+            const card = (
+              <div
+                className={`border rounded-xl p-4 ${
+                  routeFor ? "border-slate-200 bg-white hover:border-slate-300" : "border-slate-100 bg-slate-50 opacity-60"
+                }`}
+              >
+                <p className="text-sm font-semibold text-slate-800">{label}</p>
+                {!routeFor && <p className="text-xs text-slate-400 mt-1">Coming soon</p>}
+              </div>
+            );
+            return routeFor ? (
+              <Link key={section} href={routeFor(orgId)}>
+                {card}
+              </Link>
+            ) : (
+              <div key={section}>{card}</div>
+            );
+          })}
+        </div>
+      )}
 
       <IsoDisclaimer />
     </main>
