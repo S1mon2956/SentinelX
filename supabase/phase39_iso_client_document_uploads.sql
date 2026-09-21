@@ -28,7 +28,7 @@ USING (has_iso_access(iso_organization_id, 'documents'));
 
 CREATE POLICY "Iso documents insert access"
 ON public.iso_documents FOR INSERT
-WITH CHECK (has_iso_access(iso_organization_id, 'documents'));
+WITH CHECK (has_iso_access(iso_organization_id, 'documents') AND uploaded_by = auth.uid());
 
 CREATE POLICY "Iso documents update access"
 ON public.iso_documents FOR UPDATE

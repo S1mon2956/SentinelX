@@ -80,6 +80,7 @@ export default function IsoClauseDetailPage() {
     e.preventDefault();
     if (!uploadTitle.trim()) return alert("Give the document a title.");
     if (!uploadFile) return alert("Choose a file to upload.");
+    if (!profile?.id) return alert("Your profile hasn't finished loading yet — try again in a moment.");
 
     setUploading(true);
 
@@ -102,7 +103,7 @@ export default function IsoClauseDetailPage() {
       document_type: "record",
       source: "client_upload",
       file_path: path,
-      uploaded_by: profile?.id || null,
+      uploaded_by: profile.id,
     });
     if (insertError) {
       setUploading(false);
