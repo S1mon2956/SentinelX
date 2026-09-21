@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { HelpCircle } from "lucide-react";
+import { HelpCircle, ChevronDown } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthContext";
 import IsoClientTabs from "@/components/IsoClientTabs";
@@ -53,6 +53,18 @@ export default function IsoDocumentRegisterPage() {
   const [blankTitle, setBlankTitle] = useState("");
   const [enrollStandardId, setEnrollStandardId] = useState("");
   const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [collapsedStandardIds, setCollapsedStandardIds] = useState(new Set());
+  const [expandedClauseId, setExpandedClauseId] = useState(null);
+  const [clauseBlankTitle, setClauseBlankTitle] = useState("");
+
+  function toggleStandardCollapsed(standardId) {
+    setCollapsedStandardIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(standardId)) next.delete(standardId);
+      else next.add(standardId);
+      return next;
+    });
+  }
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("member");
@@ -288,6 +300,34 @@ export default function IsoDocumentRegisterPage() {
     load();
   }
 
+  // Same as addBlank, but tags the new document to one clause immediately —
+  // the shortcut offered from inside a clause row in the scope panel, so
+  // creating "the document for 4.1" doesn't require scrolling down to the
+  // document list and re-finding 4.1 in its tag picker afterwards.
+  async function addBlankForClause(clause) {
+    if (!clauseBlankTitle.trim()) return;
+    const { data: doc, error } = await supabase
+      .from("iso_documents")
+      .insert({ iso_organization_id: orgId, title: clauseBlankTitle.trim(), status: "draft" })
+      .select()
+      .single();
+    if (error) return alert(error.message);
+    const { data: userData } = await supabase.auth.getUser();
+    const { error: versionError } = await supabase.from("iso_document_versions").insert({
+      iso_document_id: doc.id,
+      version_number: 1,
+      content: "",
+      created_by: userData?.user?.id,
+    });
+    if (versionError) return alert(versionError.message);
+    const { error: tagError } = await supabase
+      .from("iso_document_clauses")
+      .insert({ iso_document_id: doc.id, clause_id: clause.id });
+    if (tagError) return alert(tagError.message);
+    setClauseBlankTitle("");
+    load();
+  }
+
   async function saveNewVersion(doc) {
     const { data: userData } = await supabase.auth.getUser();
     const { error } = await supabase.from("iso_document_versions").insert({
@@ -424,33 +464,109 @@ export default function IsoDocumentRegisterPage() {
               <p className="text-sm text-slate-400">Not enrolled in any standard yet — enroll below.</p>
             )}
 
-            {clausesByStandard.map((group) => (
-              <div key={group.standard.id}>
-                <p className="text-xs font-semibold text-indigo-700 uppercase mb-1">
-                  ISO {group.standard.code} — {group.standard.name}
-                </p>
-                {group.clauses.length === 0 && (
-                  <p className="text-xs text-slate-400">No clauses defined for this standard yet.</p>
-                )}
-                <div className="flex flex-wrap gap-1.5">
-                  {group.clauses.map((c) => {
-                    const active = orgClauseFor(c.id)?.is_active;
-                    return (
-                      <button
-                        key={c.id}
-                        onClick={() => toggleClauseActive(c)}
-                        title={c.title}
-                        className={`text-xs font-medium rounded-full px-2.5 py-1 ${
-                          active ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400"
-                        }`}
-                      >
-                        {c.clause_reference}
-                      </button>
-                    );
-                  })}
+            {clausesByStandard.map((group) => {
+              const collapsed = collapsedStandardIds.has(group.standard.id);
+              return (
+                <div key={group.standard.id} className="border border-slate-100 rounded-lg overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => toggleStandardCollapsed(group.standard.id)}
+                    className="w-full flex items-center justify-between gap-2 px-3 py-2 bg-slate-50 hover:bg-slate-100 text-left"
+                  >
+                    <span className="text-xs font-semibold text-indigo-700 uppercase">
+                      ISO {group.standard.code} — {group.standard.name}
+                    </span>
+                    <ChevronDown
+                      size={16}
+                      className={`text-slate-400 shrink-0 transition-transform ${collapsed ? "-rotate-90" : ""}`}
+                    />
+                  </button>
+
+                  {!collapsed && (
+                    <div className="divide-y divide-slate-100">
+                      {group.clauses.length === 0 && (
+                        <p className="px-3 py-2 text-xs text-slate-400">No clauses defined for this standard yet.</p>
+                      )}
+                      {group.clauses.map((c) => {
+                        const active = orgClauseFor(c.id)?.is_active;
+                        const expanded = expandedClauseId === c.id;
+                        const taggedDocs = documents.filter((d) =>
+                          (d.iso_document_clauses || []).some((dc) => dc.clause?.id === c.id)
+                        );
+                        return (
+                          <div key={c.id}>
+                            <div className="w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-slate-50">
+                              <button
+                                type="button"
+                                onClick={() => setExpandedClauseId(expanded ? null : c.id)}
+                                className="flex-1 text-left text-sm text-slate-700"
+                              >
+                                <span className="font-medium">{c.clause_reference}</span> — {c.title}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => toggleClauseActive(c)}
+                                className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${
+                                  active ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400"
+                                }`}
+                              >
+                                {active ? "In scope" : "Off"}
+                              </button>
+                            </div>
+
+                            {expanded && (
+                              <div className="mx-3 mb-3 p-3 bg-slate-50 border border-slate-100 rounded-lg space-y-2">
+                                {taggedDocs.length === 0 && (
+                                  <p className="text-xs text-slate-400">No documents tagged to this clause yet.</p>
+                                )}
+                                {taggedDocs.map((d) => (
+                                  <div key={d.id} className="flex items-center justify-between gap-2">
+                                    <span className="text-sm text-slate-700">{d.title}</span>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <span className="text-xs text-slate-400 uppercase">{d.status}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => setExpandedId(d.id)}
+                                        className="text-xs font-medium text-indigo-600 underline"
+                                      >
+                                        Edit
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                                <form
+                                  onSubmit={(e) => {
+                                    e.preventDefault();
+                                    addBlankForClause(c);
+                                  }}
+                                  className="flex gap-2 pt-1 border-t border-slate-200"
+                                >
+                                  <input
+                                    placeholder="New document title"
+                                    value={clauseBlankTitle}
+                                    onChange={(e) => setClauseBlankTitle(e.target.value)}
+                                    className="flex-1 border border-slate-300 rounded-lg px-2 py-1.5 text-sm bg-white"
+                                  />
+                                  <button
+                                    type="submit"
+                                    className="text-xs font-medium px-3 py-1.5 rounded-lg bg-slate-900 text-white hover:bg-slate-800"
+                                  >
+                                    Add & tag
+                                  </button>
+                                </form>
+                                <p className="text-xs text-slate-400">
+                                  Or use "Add from template" below, then tag it to {c.clause_reference} from its editor.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {unenrolledStandards.length > 0 && (
               <form onSubmit={enrollStandard} className="flex gap-2 pt-2 border-t border-slate-100">
