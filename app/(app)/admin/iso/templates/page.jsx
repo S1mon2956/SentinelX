@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Trash2, HelpCircle } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthContext";
@@ -104,6 +105,9 @@ export default function IsoTemplatesPage() {
   return (
     <main className="p-6 max-w-4xl mx-auto space-y-6">
       <div>
+        <Link href="/admin/iso" className="text-xs font-medium text-indigo-600 underline">
+          &larr; Back to Clients
+        </Link>
         <div className="flex items-center gap-2">
           <h1 className="text-xl font-semibold text-slate-800 mb-1">ISO Excellence — document template library</h1>
           <button

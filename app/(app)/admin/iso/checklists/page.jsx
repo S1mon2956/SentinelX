@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthContext";
@@ -105,6 +106,9 @@ export default function IsoChecklistsPage() {
   return (
     <main className="p-6 max-w-4xl mx-auto space-y-6">
       <div>
+        <Link href="/admin/iso" className="text-xs font-medium text-indigo-600 underline">
+          &larr; Back to Clients
+        </Link>
         <h1 className="text-xl font-semibold text-slate-800 mb-1">ISO Excellence — checklist library</h1>
         <p className="text-sm text-slate-500">Reusable audit checklists, tagged to clauses across one or more standards. Run against any client to start an audit.</p>
       </div>

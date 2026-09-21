@@ -33,7 +33,11 @@ export default function IsoClientTabs({ orgId }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   return (
-    <nav className="flex gap-1 border-b border-slate-200 mb-4 overflow-x-auto">
+    <>
+      <Link href="/admin/iso" className="text-xs font-medium text-indigo-600 underline">
+        &larr; Back to Clients
+      </Link>
+      <nav className="flex gap-1 border-b border-slate-200 mb-4 mt-2 overflow-x-auto">
       {TABS.map((t) => {
         const href = t.href(orgId);
         const active = t.isActive ? t.isActive(pathname, searchParams, orgId) : pathname === href;
@@ -49,6 +53,7 @@ export default function IsoClientTabs({ orgId }) {
           </Link>
         );
       })}
-    </nav>
+      </nav>
+    </>
   );
 }
