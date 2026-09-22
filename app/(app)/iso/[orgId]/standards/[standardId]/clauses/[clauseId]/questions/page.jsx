@@ -128,20 +128,15 @@ export default function IsoClauseQuestionsPage() {
     try {
       const docId = await ensureDocument();
 
-      const { data: existingAnswer } = await supabase
+      // Relies on the iso_document_answers_unique_per_question constraint
+      // (phase46) — an upsert here instead of check-then-update closes the
+      // race a slow-connection retry could otherwise hit.
+      const { error: saveError } = await supabase
         .from("iso_document_answers")
-        .select("id")
-        .eq("iso_document_id", docId)
-        .eq("clause_question_id", question.id)
-        .maybeSingle();
-
-      const { error: saveError } = existingAnswer
-        ? await supabase.from("iso_document_answers").update({ answer_text: value }).eq("id", existingAnswer.id)
-        : await supabase.from("iso_document_answers").insert({
-            iso_document_id: docId,
-            clause_question_id: question.id,
-            answer_text: value,
-          });
+        .upsert(
+          { iso_document_id: docId, clause_question_id: question.id, answer_text: value },
+          { onConflict: "iso_document_id,clause_question_id" }
+        );
       if (saveError) throw new Error(saveError.message);
 
       setAnswers((prev) => ({ ...prev, [question.id]: value }));
