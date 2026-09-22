@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthContext";
 import IsoDisclaimer from "@/components/IsoDisclaimer";
@@ -225,13 +226,12 @@ export default function IsoClauseDetailPage() {
               >
                 Upload your own document
               </button>
-              <button
-                disabled
-                title="Coming soon"
-                className="text-sm font-medium px-3 py-2 rounded-lg bg-slate-100 text-slate-400 cursor-not-allowed"
+              <Link
+                href={`/iso/${orgId}/standards/${standardId}/clauses/${clauseId}/questions`}
+                className="text-sm font-medium px-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
               >
                 Answer guided questions
-              </button>
+              </Link>
             </div>
 
             {showUploadForm && (
