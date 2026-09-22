@@ -8,6 +8,7 @@ import IsoDisclaimer from "@/components/IsoDisclaimer";
 import IsoDocumentStatusBadge from "@/components/IsoDocumentStatusBadge";
 import IsoLoading from "@/components/IsoLoading";
 import IsoBackLink from "@/components/IsoBackLink";
+import { describeClauseTagError } from "@/lib/isoErrors";
 
 export default function IsoClauseDetailPage() {
   const { orgId, standardId, clauseId } = useParams();
@@ -16,6 +17,7 @@ export default function IsoClauseDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [clause, setClause] = useState(null);
+  const [clauseActive, setClauseActive] = useState(false);
   const [documents, setDocuments] = useState([]);
   const [openDocId, setOpenDocId] = useState(null);
   const [viewingId, setViewingId] = useState(null);
@@ -32,14 +34,24 @@ export default function IsoClauseDetailPage() {
 
   async function load() {
     setLoading(true);
-    const [{ data: clauseData, error: clauseError }, { data: docLinks, error: docsError }] = await Promise.all([
+    const [
+      { data: clauseData, error: clauseError },
+      { data: docLinks, error: docsError },
+      { data: orgClauseData, error: orgClauseError },
+    ] = await Promise.all([
       supabase.from("iso_clauses").select("*").eq("id", clauseId).single(),
       supabase
         .from("iso_document_clauses")
         .select("iso_documents(id, title, document_type, status, source, file_path, created_at)")
         .eq("clause_id", clauseId),
+      supabase
+        .from("iso_organization_clauses")
+        .select("is_active")
+        .eq("iso_organization_id", orgId)
+        .eq("clause_id", clauseId)
+        .maybeSingle(),
     ]);
-    const loadError = clauseError || docsError;
+    const loadError = clauseError || docsError || orgClauseError;
     if (loadError) {
       console.error("Failed to load clause:", loadError.message);
       setError(loadError.message);
@@ -47,6 +59,7 @@ export default function IsoClauseDetailPage() {
       return;
     }
     setClause(clauseData || null);
+    setClauseActive(!!orgClauseData?.is_active);
     setDocuments((docLinks || []).map((r) => r.iso_documents).filter(Boolean));
     setLoading(false);
   }
@@ -131,7 +144,7 @@ export default function IsoClauseDetailPage() {
       await supabase.from("iso_documents").delete().eq("id", documentId);
       await supabase.storage.from("iso-documents").remove([path]);
       setUploading(false);
-      alert(`Upload couldn't be linked to this clause and was rolled back: ${tagError.message}. Please try again.`);
+      alert(`Upload couldn't be linked to this clause and was rolled back: ${describeClauseTagError(tagError)}`);
       return;
     }
 
@@ -152,8 +165,21 @@ export default function IsoClauseDetailPage() {
         <h1 className="text-xl font-semibold text-slate-800 mt-1">
           {clause?.clause_reference} — {clause?.title}
         </h1>
-        {clause?.description && <p className="text-sm text-slate-500 mt-1">{clause.description}</p>}
       </div>
+
+      {clause?.plain_language_summary && (
+        <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
+          <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide mb-1">In plain terms</p>
+          <p className="text-sm text-indigo-900">{clause.plain_language_summary}</p>
+        </div>
+      )}
+
+      {clause?.description && (
+        <div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">What this requires</p>
+          <p className="text-sm text-slate-700 whitespace-pre-wrap">{clause.description}</p>
+        </div>
+      )}
 
       <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
         <h2 className="text-sm font-semibold text-slate-700">Documents</h2>
@@ -186,43 +212,53 @@ export default function IsoClauseDetailPage() {
           </div>
         ))}
 
-        <div className="flex flex-wrap gap-2 pt-1">
-          <button
-            onClick={() => setShowUploadForm((v) => !v)}
-            className="text-sm font-medium px-3 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800"
-          >
-            Upload your own document
-          </button>
-          <button
-            disabled
-            title="Coming soon"
-            className="text-sm font-medium px-3 py-2 rounded-lg bg-slate-100 text-slate-400 cursor-not-allowed"
-          >
-            Answer guided questions
-          </button>
-        </div>
+        {/* Tagging a document to an off clause is rejected by the DB
+            trigger — don't offer the action at all when this clause isn't
+            enrolled (it also can't be reached from the clause list when
+            off, but a direct link could still land here). */}
+        {clauseActive ? (
+          <>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button
+                onClick={() => setShowUploadForm((v) => !v)}
+                className="text-sm font-medium px-3 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800"
+              >
+                Upload your own document
+              </button>
+              <button
+                disabled
+                title="Coming soon"
+                className="text-sm font-medium px-3 py-2 rounded-lg bg-slate-100 text-slate-400 cursor-not-allowed"
+              >
+                Answer guided questions
+              </button>
+            </div>
 
-        {showUploadForm && (
-          <form onSubmit={uploadDocument} className="border border-slate-200 rounded-lg p-3 space-y-2 bg-slate-50">
-            <input
-              placeholder="Document title"
-              value={uploadTitle}
-              onChange={(e) => setUploadTitle(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-            />
-            <input
-              type="file"
-              onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
-            />
-            <button
-              type="submit"
-              disabled={uploading}
-              className="bg-slate-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-slate-800 disabled:opacity-50"
-            >
-              {uploading ? "Uploading..." : "Upload"}
-            </button>
-          </form>
+            {showUploadForm && (
+              <form onSubmit={uploadDocument} className="border border-slate-200 rounded-lg p-3 space-y-2 bg-slate-50">
+                <input
+                  placeholder="Document title"
+                  value={uploadTitle}
+                  onChange={(e) => setUploadTitle(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                />
+                <input
+                  type="file"
+                  onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
+                />
+                <button
+                  type="submit"
+                  disabled={uploading}
+                  className="bg-slate-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {uploading ? "Uploading..." : "Upload"}
+                </button>
+              </form>
+            )}
+          </>
+        ) : (
+          <p className="text-xs text-slate-400 pt-1">This clause isn't currently enrolled for your organisation.</p>
         )}
       </div>
 

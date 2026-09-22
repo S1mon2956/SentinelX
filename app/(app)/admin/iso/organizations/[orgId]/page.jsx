@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/lib/AuthContext";
 import IsoClientTabs from "@/components/IsoClientTabs";
 import IsoTutorialOverlay from "@/components/IsoTutorialOverlay";
+import { describeClauseTagError } from "@/lib/isoErrors";
 
 const STATUSES = ["draft", "in_review", "approved", "superseded"];
 const SECTION_OPTIONS = ["documents", "audits", "actions", "risks", "contractors", "equipment", "meetings", "reports"];
@@ -218,6 +219,23 @@ export default function IsoDocumentRegisterPage() {
   async function toggleClauseActive(clause) {
     const existing = orgClauseFor(clause.id);
     if (existing) {
+      // Turning OFF: refuse if any document still cites this clause — the
+      // enforce_iso_document_clause_scope trigger would leave those tags in
+      // an inconsistent state (pointing at a now-unenrolled clause) if we
+      // let this through, so catch it here with a message instead.
+      if (existing.is_active) {
+        const taggedCount = documents.filter((d) =>
+          (d.iso_document_clauses || []).some((dc) => dc.clause?.id === clause.id)
+        ).length;
+        if (taggedCount > 0) {
+          alert(
+            `${taggedCount} document${taggedCount === 1 ? " is" : "s are"} tagged to this clause — remove or retag ${
+              taggedCount === 1 ? "it" : "them"
+            } before turning it off.`
+          );
+          return;
+        }
+      }
       const { error } = await supabase.from("iso_organization_clauses").update({ is_active: !existing.is_active }).eq("id", existing.id);
       if (error) return alert(error.message);
     } else {
@@ -272,7 +290,7 @@ export default function IsoDocumentRegisterPage() {
       const { error: clauseError } = await supabase
         .from("iso_document_clauses")
         .insert(templateClauseIds.map((clause_id) => ({ iso_document_id: doc.id, clause_id })));
-      if (clauseError) return alert(clauseError.message);
+      if (clauseError) return alert(describeClauseTagError(clauseError));
     }
 
     setSelectedTemplateId("");
@@ -323,7 +341,7 @@ export default function IsoDocumentRegisterPage() {
     const { error: tagError } = await supabase
       .from("iso_document_clauses")
       .insert({ iso_document_id: doc.id, clause_id: clause.id });
-    if (tagError) return alert(tagError.message);
+    if (tagError) return alert(describeClauseTagError(tagError));
     setClauseBlankTitle("");
     load();
   }
@@ -353,7 +371,7 @@ export default function IsoDocumentRegisterPage() {
       if (error) return alert(error.message);
     } else {
       const { error } = await supabase.from("iso_document_clauses").insert({ iso_document_id: doc.id, clause_id: clause.id });
-      if (error) return alert(error.message);
+      if (error) return alert(describeClauseTagError(error));
     }
     load();
   }
@@ -534,29 +552,39 @@ export default function IsoDocumentRegisterPage() {
                                     </div>
                                   </div>
                                 ))}
-                                <form
-                                  onSubmit={(e) => {
-                                    e.preventDefault();
-                                    addBlankForClause(c);
-                                  }}
-                                  className="flex gap-2 pt-1 border-t border-slate-200"
-                                >
-                                  <input
-                                    placeholder="New document title"
-                                    value={clauseBlankTitle}
-                                    onChange={(e) => setClauseBlankTitle(e.target.value)}
-                                    className="flex-1 border border-slate-300 rounded-lg px-2 py-1.5 text-sm bg-white"
-                                  />
-                                  <button
-                                    type="submit"
-                                    className="text-xs font-medium px-3 py-1.5 rounded-lg bg-slate-900 text-white hover:bg-slate-800"
+                                {/* Tagging a document to an off clause is rejected by the DB
+                                    trigger — don't offer the action at all for an off clause. */}
+                                {active ? (
+                                  <form
+                                    onSubmit={(e) => {
+                                      e.preventDefault();
+                                      addBlankForClause(c);
+                                    }}
+                                    className="flex gap-2 pt-1 border-t border-slate-200"
                                   >
-                                    Add & tag
-                                  </button>
-                                </form>
-                                <p className="text-xs text-slate-400">
-                                  Or use "Add from template" below, then tag it to {c.clause_reference} from its editor.
-                                </p>
+                                    <input
+                                      placeholder="New document title"
+                                      value={clauseBlankTitle}
+                                      onChange={(e) => setClauseBlankTitle(e.target.value)}
+                                      className="flex-1 border border-slate-300 rounded-lg px-2 py-1.5 text-sm bg-white"
+                                    />
+                                    <button
+                                      type="submit"
+                                      className="text-xs font-medium px-3 py-1.5 rounded-lg bg-slate-900 text-white hover:bg-slate-800"
+                                    >
+                                      Add & tag
+                                    </button>
+                                  </form>
+                                ) : (
+                                  <p className="text-xs text-slate-400 pt-1 border-t border-slate-200">
+                                    This clause is off — turn it on to add or tag a document to it.
+                                  </p>
+                                )}
+                                {active && (
+                                  <p className="text-xs text-slate-400">
+                                    Or use "Add from template" below, then tag it to {c.clause_reference} from its editor.
+                                  </p>
+                                )}
                               </div>
                             )}
                           </div>
