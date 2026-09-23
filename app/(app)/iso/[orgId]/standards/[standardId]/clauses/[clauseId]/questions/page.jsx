@@ -9,12 +9,8 @@ import IsoLoading from "@/components/IsoLoading";
 import IsoBackLink from "@/components/IsoBackLink";
 import { describeClauseTagError } from "@/lib/isoErrors";
 
-// Placeholder only — Simon is providing the exact copy for what a client
-// sees when a stop-trigger question halts the flow. Deliberately generic:
-// no "we'll be in touch" or anything implying a consultant relationship
-// is now active, since the tool has no way to know that's true.
 const STOP_TRIGGER_MESSAGE =
-  "This needs to be handled outside this tool before continuing here. Your answers so far have been saved.";
+  "You've told us this involves something that is unresolved, still being investigated, or not yet reported. This tool can't help with that. Speak to your insurer and your solicitor before you write anything down here. Some matters carry legal reporting duties with strict time limits, so don't wait on this tool. Your answers so far have been saved.";
 
 // Stop-trigger questions always come first, regardless of stored
 // sort_order — the stop check has to happen before anything else in the
@@ -38,6 +34,8 @@ export default function IsoClauseQuestionsPage() {
   const [documentId, setDocumentId] = useState(null);
   const [answers, setAnswers] = useState({}); // clause_question_id -> answer_text
   const [saving, setSaving] = useState(false);
+  const [reopenTarget, setReopenTarget] = useState(null); // question being reopened, or null
+  const [reopenConfirmed, setReopenConfirmed] = useState(false);
 
   useEffect(() => {
     load();
@@ -147,10 +145,18 @@ export default function IsoClauseQuestionsPage() {
     }
   }
 
+  async function confirmReopen() {
+    if (!reopenTarget || !reopenConfirmed) return;
+    await answerQuestion(reopenTarget, "no");
+    setReopenTarget(null);
+    setReopenConfirmed(false);
+  }
+
   if (loading) return <IsoLoading />;
   if (error) return <main className="p-6 text-sm text-rose-600">Couldn't load questions: {error}</main>;
 
-  const halted = questions.some((q) => q.is_stop_trigger && answers[q.id] === "yes");
+  const haltingQuestion = questions.find((q) => q.is_stop_trigger && answers[q.id] === "yes");
+  const halted = !!haltingQuestion;
   const currentQuestion = halted ? null : questions.find((q) => answers[q.id] === undefined);
 
   return (
@@ -172,9 +178,15 @@ export default function IsoClauseQuestionsPage() {
         )}
 
         {clauseActive && questions.length > 0 && halted && (
-          <div className="space-y-2">
-            <p className="text-sm font-semibold text-rose-700">Stopped</p>
+          <div className="space-y-3">
+            <p className="text-sm font-semibold text-rose-700">Stopped — please read</p>
             <p className="text-sm text-slate-700">{STOP_TRIGGER_MESSAGE}</p>
+            <button
+              onClick={() => setReopenTarget(haltingQuestion)}
+              className="text-sm font-medium px-4 py-2 rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
+            >
+              This matter is now closed and reported — change my answer
+            </button>
           </div>
         )}
 
@@ -208,6 +220,53 @@ export default function IsoClauseQuestionsPage() {
           </p>
         )}
       </div>
+
+      {reopenTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => {
+            setReopenTarget(null);
+            setReopenConfirmed(false);
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl border border-slate-200"
+          >
+            <h2 className="text-lg font-semibold text-slate-800">Change this answer?</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              This will reopen the clause and let you answer the remaining questions. The change is recorded.
+            </p>
+            <label className="mt-4 flex items-start gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={reopenConfirmed}
+                onChange={(e) => setReopenConfirmed(e.target.checked)}
+                className="mt-0.5"
+              />
+              I confirm this matter is closed and has been reported through my normal channels.
+            </label>
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                onClick={() => {
+                  setReopenTarget(null);
+                  setReopenConfirmed(false);
+                }}
+                className="text-sm font-medium px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmReopen}
+                disabled={!reopenConfirmed || saving}
+                className="text-sm font-medium px-4 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50"
+              >
+                Reopen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <IsoDisclaimer />
     </main>
